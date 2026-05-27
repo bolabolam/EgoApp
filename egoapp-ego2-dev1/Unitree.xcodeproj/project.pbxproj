@@ -1,0 +1,619 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		924601352EA6B71F00215BF0 /* UnitreeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924601342EA6B71F00215BF0 /* UnitreeApp.swift */; };
+		924601372EA6B71F00215BF0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924601362EA6B71F00215BF0 /* ContentView.swift */; };
+		9246013B2EA6B72000215BF0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9246013A2EA6B72000215BF0 /* Assets.xcassets */; };
+		9246013E2EA6B72000215BF0 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9246013D2EA6B72000215BF0 /* Preview Assets.xcassets */; };
+		924601482EA6B72000215BF0 /* UnitreeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924601472EA6B72000215BF0 /* UnitreeTests.swift */; };
+		924601522EA6B72000215BF0 /* UnitreeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924601512EA6B72000215BF0 /* UnitreeUITests.swift */; };
+		924601542EA6B72000215BF0 /* UnitreeUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924601532EA6B72000215BF0 /* UnitreeUITestsLaunchTests.swift */; };
+		924601612EA6B80000215BF0 /* CameraManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924601602EA6B80000215BF0 /* CameraManager.swift */; };
+		924601632EA6B81000215BF0 /* VideoStreamServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924601622EA6B81000215BF0 /* VideoStreamServer.swift */; };
+		924601652EA6B83000215BF0 /* PointCloudServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924601642EA6B83000215BF0 /* PointCloudServer.swift */; };
+		924601682EA6B84000215BF0 /* SensorDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924601672EA6B84000215BF0 /* SensorDataManager.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		924601442EA6B72000215BF0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 924601292EA6B71E00215BF0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 924601302EA6B71E00215BF0;
+			remoteInfo = Unitree;
+		};
+		9246014E2EA6B72000215BF0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 924601292EA6B71E00215BF0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 924601302EA6B71E00215BF0;
+			remoteInfo = Unitree;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		924601312EA6B71F00215BF0 /* Ego2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ego2.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		924601342EA6B71F00215BF0 /* UnitreeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnitreeApp.swift; sourceTree = "<group>"; };
+		924601362EA6B71F00215BF0 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		9246013A2EA6B72000215BF0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		9246013D2EA6B72000215BF0 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		924601432EA6B72000215BF0 /* UnitreeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UnitreeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		924601472EA6B72000215BF0 /* UnitreeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnitreeTests.swift; sourceTree = "<group>"; };
+		9246014D2EA6B72000215BF0 /* UnitreeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UnitreeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		924601512EA6B72000215BF0 /* UnitreeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnitreeUITests.swift; sourceTree = "<group>"; };
+		924601532EA6B72000215BF0 /* UnitreeUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnitreeUITestsLaunchTests.swift; sourceTree = "<group>"; };
+		924601602EA6B80000215BF0 /* CameraManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraManager.swift; sourceTree = "<group>"; };
+		924601622EA6B81000215BF0 /* VideoStreamServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoStreamServer.swift; sourceTree = "<group>"; };
+		924601642EA6B83000215BF0 /* PointCloudServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointCloudServer.swift; sourceTree = "<group>"; };
+		924601662EA6B82000215BF0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		924601672EA6B84000215BF0 /* SensorDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorDataManager.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		9246012E2EA6B71E00215BF0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		924601402EA6B72000215BF0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9246014A2EA6B72000215BF0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		924601282EA6B71E00215BF0 = {
+			isa = PBXGroup;
+			children = (
+				924601332EA6B71F00215BF0 /* Unitree */,
+				924601462EA6B72000215BF0 /* UnitreeTests */,
+				924601502EA6B72000215BF0 /* UnitreeUITests */,
+				924601322EA6B71F00215BF0 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		924601322EA6B71F00215BF0 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				924601312EA6B71F00215BF0 /* Ego2.app */,
+				924601432EA6B72000215BF0 /* UnitreeTests.xctest */,
+				9246014D2EA6B72000215BF0 /* UnitreeUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		924601332EA6B71F00215BF0 /* Unitree */ = {
+			isa = PBXGroup;
+			children = (
+				924601662EA6B82000215BF0 /* Info.plist */,
+				924601342EA6B71F00215BF0 /* UnitreeApp.swift */,
+				924601362EA6B71F00215BF0 /* ContentView.swift */,
+				924601602EA6B80000215BF0 /* CameraManager.swift */,
+				924601622EA6B81000215BF0 /* VideoStreamServer.swift */,
+				924601642EA6B83000215BF0 /* PointCloudServer.swift */,
+				924601672EA6B84000215BF0 /* SensorDataManager.swift */,
+				9246013A2EA6B72000215BF0 /* Assets.xcassets */,
+				9246013C2EA6B72000215BF0 /* Preview Content */,
+			);
+			path = Unitree;
+			sourceTree = "<group>";
+		};
+		9246013C2EA6B72000215BF0 /* Preview Content */ = {
+			isa = PBXGroup;
+			children = (
+				9246013D2EA6B72000215BF0 /* Preview Assets.xcassets */,
+			);
+			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		924601462EA6B72000215BF0 /* UnitreeTests */ = {
+			isa = PBXGroup;
+			children = (
+				924601472EA6B72000215BF0 /* UnitreeTests.swift */,
+			);
+			path = UnitreeTests;
+			sourceTree = "<group>";
+		};
+		924601502EA6B72000215BF0 /* UnitreeUITests */ = {
+			isa = PBXGroup;
+			children = (
+				924601512EA6B72000215BF0 /* UnitreeUITests.swift */,
+				924601532EA6B72000215BF0 /* UnitreeUITestsLaunchTests.swift */,
+			);
+			path = UnitreeUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		924601302EA6B71E00215BF0 /* Unitree */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 924601572EA6B72000215BF0 /* Build configuration list for PBXNativeTarget "Unitree" */;
+			buildPhases = (
+				9246012D2EA6B71E00215BF0 /* Sources */,
+				9246012E2EA6B71E00215BF0 /* Frameworks */,
+				9246012F2EA6B71E00215BF0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Unitree;
+			productName = Unitree;
+			productReference = 924601312EA6B71F00215BF0 /* Ego2.app */;
+			productType = "com.apple.product-type.application";
+		};
+		924601422EA6B72000215BF0 /* UnitreeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9246015A2EA6B72000215BF0 /* Build configuration list for PBXNativeTarget "UnitreeTests" */;
+			buildPhases = (
+				9246013F2EA6B72000215BF0 /* Sources */,
+				924601402EA6B72000215BF0 /* Frameworks */,
+				924601412EA6B72000215BF0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				924601452EA6B72000215BF0 /* PBXTargetDependency */,
+			);
+			name = UnitreeTests;
+			productName = UnitreeTests;
+			productReference = 924601432EA6B72000215BF0 /* UnitreeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		9246014C2EA6B72000215BF0 /* UnitreeUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9246015D2EA6B72000215BF0 /* Build configuration list for PBXNativeTarget "UnitreeUITests" */;
+			buildPhases = (
+				924601492EA6B72000215BF0 /* Sources */,
+				9246014A2EA6B72000215BF0 /* Frameworks */,
+				9246014B2EA6B72000215BF0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9246014F2EA6B72000215BF0 /* PBXTargetDependency */,
+			);
+			name = UnitreeUITests;
+			productName = UnitreeUITests;
+			productReference = 9246014D2EA6B72000215BF0 /* UnitreeUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		924601292EA6B71E00215BF0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1510;
+				LastUpgradeCheck = 1510;
+				TargetAttributes = {
+					924601302EA6B71E00215BF0 = {
+						CreatedOnToolsVersion = 15.1;
+					};
+					924601422EA6B72000215BF0 = {
+						CreatedOnToolsVersion = 15.1;
+						TestTargetID = 924601302EA6B71E00215BF0;
+					};
+					9246014C2EA6B72000215BF0 = {
+						CreatedOnToolsVersion = 15.1;
+						TestTargetID = 924601302EA6B71E00215BF0;
+					};
+				};
+			};
+			buildConfigurationList = 9246012C2EA6B71E00215BF0 /* Build configuration list for PBXProject "Unitree" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 924601282EA6B71E00215BF0;
+			productRefGroup = 924601322EA6B71F00215BF0 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				924601302EA6B71E00215BF0 /* Unitree */,
+				924601422EA6B72000215BF0 /* UnitreeTests */,
+				9246014C2EA6B72000215BF0 /* UnitreeUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		9246012F2EA6B71E00215BF0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9246013E2EA6B72000215BF0 /* Preview Assets.xcassets in Resources */,
+				9246013B2EA6B72000215BF0 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		924601412EA6B72000215BF0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9246014B2EA6B72000215BF0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		9246012D2EA6B71E00215BF0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				924601372EA6B71F00215BF0 /* ContentView.swift in Sources */,
+				924601612EA6B80000215BF0 /* CameraManager.swift in Sources */,
+				924601632EA6B81000215BF0 /* VideoStreamServer.swift in Sources */,
+				924601652EA6B83000215BF0 /* PointCloudServer.swift in Sources */,
+				924601682EA6B84000215BF0 /* SensorDataManager.swift in Sources */,
+				924601352EA6B71F00215BF0 /* UnitreeApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9246013F2EA6B72000215BF0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				924601482EA6B72000215BF0 /* UnitreeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		924601492EA6B72000215BF0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				924601522EA6B72000215BF0 /* UnitreeUITests.swift in Sources */,
+				924601542EA6B72000215BF0 /* UnitreeUITestsLaunchTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		924601452EA6B72000215BF0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 924601302EA6B71E00215BF0 /* Unitree */;
+			targetProxy = 924601442EA6B72000215BF0 /* PBXContainerItemProxy */;
+		};
+		9246014F2EA6B72000215BF0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 924601302EA6B71E00215BF0 /* Unitree */;
+			targetProxy = 9246014E2EA6B72000215BF0 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		924601552EA6B72000215BF0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		924601562EA6B72000215BF0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		924601582EA6B72000215BF0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"Unitree/Preview Content\"";
+				DEVELOPMENT_TEAM = 3Q4NSCZHW4;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = Unitree/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Ego2;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.yourname.ego2-$(DEVELOPMENT_TEAM)";
+				PRODUCT_NAME = Ego2;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		924601592EA6B72000215BF0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"Unitree/Preview Content\"";
+				DEVELOPMENT_TEAM = 3Q4NSCZHW4;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = Unitree/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Ego2;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.yourname.ego2-$(DEVELOPMENT_TEAM)";
+				PRODUCT_NAME = Ego2;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		9246015B2EA6B72000215BF0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3Q4NSCZHW4;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.Ego2Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ego2.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Ego2";
+			};
+			name = Debug;
+		};
+		9246015C2EA6B72000215BF0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3Q4NSCZHW4;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.Ego2Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ego2.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Ego2";
+			};
+			name = Release;
+		};
+		9246015E2EA6B72000215BF0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3Q4NSCZHW4;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.Ego2UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Unitree;
+			};
+			name = Debug;
+		};
+		9246015F2EA6B72000215BF0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3Q4NSCZHW4;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.Ego2UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Unitree;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		9246012C2EA6B71E00215BF0 /* Build configuration list for PBXProject "Unitree" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				924601552EA6B72000215BF0 /* Debug */,
+				924601562EA6B72000215BF0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		924601572EA6B72000215BF0 /* Build configuration list for PBXNativeTarget "Unitree" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				924601582EA6B72000215BF0 /* Debug */,
+				924601592EA6B72000215BF0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9246015A2EA6B72000215BF0 /* Build configuration list for PBXNativeTarget "UnitreeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9246015B2EA6B72000215BF0 /* Debug */,
+				9246015C2EA6B72000215BF0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9246015D2EA6B72000215BF0 /* Build configuration list for PBXNativeTarget "UnitreeUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9246015E2EA6B72000215BF0 /* Debug */,
+				9246015F2EA6B72000215BF0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 924601292EA6B71E00215BF0 /* Project object */;
+}
