@@ -27,6 +27,8 @@ struct ContentView: View {
     @FocusState private var isIPFieldFocused: Bool
     @StateObject private var sessionLogger = SessionLogger()
     @StateObject private var syncClient = SyncEventClient()
+    @StateObject private var imageClient = ImageStreamClient()
+    @StateObject private var sensorClient = SensorStreamClient()
     @State private var frameIdx: Int = 0
     
     var body: some View {
@@ -155,7 +157,7 @@ struct ContentView: View {
             // Set delegates directly
             cameraManager.streamDelegate = streamServer
             cameraManager.pointCloudDelegate = pointCloudServer
-            cameraManager.rosFrameDelegate = syncClient
+            cameraManager.rosFrameDelegate = imageClient
             print("✅ Set video and point cloud delegates")
             
             // Initialize previous states
@@ -177,12 +179,26 @@ struct ContentView: View {
                 announceAction("Ego2 streaming app ready. Press Start to begin.")
             }
             syncClient.rosBridgeHost = pointCloudServer.rosBridgeHost
+            imageClient.rosBridgeHost = pointCloudServer.rosBridgeHost
+            sensorClient.rosBridgeHost = pointCloudServer.rosBridgeHost
             syncClient.start { event in
                 handleSyncEvent(event)
             }
+            imageClient.start()
+            sensorClient.start()
         }
         .onChange(of: pointCloudServer.rosBridgeHost) { _, host in
+            syncClient.stop()
+            imageClient.stop()
+            sensorClient.stop()
             syncClient.rosBridgeHost = host
+            imageClient.rosBridgeHost = host
+            sensorClient.rosBridgeHost = host
+            syncClient.start { event in
+                handleSyncEvent(event)
+            }
+            imageClient.start()
+            sensorClient.start()
         }
         .onReceive(Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()) { _ in
             guard cameraManager.isSessionRunning else { return }
@@ -199,7 +215,7 @@ struct ContentView: View {
                 gy: sensorManager.rotationRate.y,
                 gz: sensorManager.rotationRate.z
             )
-            syncClient.publishImu(
+            sensorClient.publishImu(
                 phoneTsUnix: ts,
                 ax: sensorManager.acceleration.x,
                 ay: sensorManager.acceleration.y,
@@ -217,7 +233,7 @@ struct ContentView: View {
                     speedMps: sensorManager.speed ?? 0.0,
                     headingDeg: sensorManager.course ?? 0.0
                 )
-                syncClient.publishGps(
+                sensorClient.publishGps(
                     phoneTsUnix: ts,
                     lat: lat,
                     lon: lon,
@@ -235,6 +251,8 @@ struct ContentView: View {
             pointCloudServer.stopServer()
             sensorManager.stopUpdates()
             syncClient.stop()
+            imageClient.stop()
+            sensorClient.stop()
             sessionLogger.endSession()
         }
     }
@@ -763,25 +781,23 @@ final class SyncEventClient: ObservableObject {
     private let rosBridgePort: UInt16 = 9090
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
+    private var reconnectTimer: Timer?
+    private var isRunning = false
     private var callback: ((SyncEvent) -> Void)?
     private let topicName = "/dataset/sync_event"
     private let frameMetaTopic = "/camera_person/frame_meta"
     private let recordStatusTopic = "/camera_person/record_status"
-    private let colorImageTopic = "/camera_person/color/image_raw/compressed"
-    private let depthImageTopic = "/camera_person/depth/image_raw/compressed"
-    private let imuTopic = "/camera_person/imu"
-    private let gpsFixTopic = "/camera_person/gps/fix"
-    private let gpsVelTopic = "/camera_person/gps/vel"
-    private let publishQueue = DispatchQueue(label: "sync.publish.queue", qos: .userInitiated)
-    private var lastImagePublishTs: TimeInterval = 0
-    private let imagePublishInterval: TimeInterval = 0.2
 
     func start(onEvent: @escaping (SyncEvent) -> Void) {
         callback = onEvent
+        isRunning = true
         connect()
     }
 
     func stop() {
+        isRunning = false
+        reconnectTimer?.invalidate()
+        reconnectTimer = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
@@ -789,6 +805,7 @@ final class SyncEventClient: ObservableObject {
     }
 
     private func connect() {
+        guard isRunning else { return }
         let urlString = "ws://\(rosBridgeHost):\(rosBridgePort)"
         guard let url = URL(string: urlString) else { return }
         let config = URLSessionConfiguration.default
@@ -811,98 +828,12 @@ final class SyncEventClient: ObservableObject {
             "topic": recordStatusTopic,
             "type": "std_msgs/msg/String"
         ])
-        sendJson([
-            "op": "advertise",
-            "topic": colorImageTopic,
-            "type": "sensor_msgs/msg/CompressedImage"
-        ])
-        sendJson([
-            "op": "advertise",
-            "topic": depthImageTopic,
-            "type": "sensor_msgs/msg/CompressedImage"
-        ])
-        sendJson([
-            "op": "advertise",
-            "topic": imuTopic,
-            "type": "sensor_msgs/msg/Imu"
-        ])
-        sendJson([
-            "op": "advertise",
-            "topic": gpsFixTopic,
-            "type": "sensor_msgs/msg/NavSatFix"
-        ])
-        sendJson([
-            "op": "advertise",
-            "topic": gpsVelTopic,
-            "type": "geometry_msgs/msg/TwistStamped"
-        ])
         let advertise: [String: Any] = [
             "op": "subscribe",
             "topic": topicName,
             "type": "std_msgs/msg/String"
         ]
         sendJson(advertise)
-    }
-
-    func publishImu(phoneTsUnix: Double, ax: Double, ay: Double, az: Double, gx: Double, gy: Double, gz: Double) {
-        let stamp = makeRosStamp(fromUnix: phoneTsUnix)
-        let msg: [String: Any] = [
-            "header": [
-                "stamp": stamp,
-                "frame_id": "person_phone_imu_frame"
-            ],
-            "orientation": ["x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0],
-            "orientation_covariance": [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            "angular_velocity": ["x": gx, "y": gy, "z": gz],
-            "angular_velocity_covariance": [0.02, 0.0, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0, 0.02],
-            "linear_acceleration": ["x": ax, "y": ay, "z": az],
-            "linear_acceleration_covariance": [0.04, 0.0, 0.0, 0.0, 0.04, 0.0, 0.0, 0.0, 0.04]
-        ]
-        sendJson([
-            "op": "publish",
-            "topic": imuTopic,
-            "msg": msg
-        ])
-    }
-
-    func publishGps(phoneTsUnix: Double, lat: Double, lon: Double, altM: Double, speedMps: Double, headingDeg: Double) {
-        let stamp = makeRosStamp(fromUnix: phoneTsUnix)
-        let headingRad = headingDeg * .pi / 180.0
-        let vx = speedMps * sin(headingRad)
-        let vy = speedMps * cos(headingRad)
-        sendJson([
-            "op": "publish",
-            "topic": gpsFixTopic,
-            "msg": [
-                "header": [
-                    "stamp": stamp,
-                    "frame_id": "person_gps_frame"
-                ],
-                "status": [
-                    "status": 0,
-                    "service": 1
-                ],
-                "latitude": lat,
-                "longitude": lon,
-                "altitude": altM,
-                "position_covariance": [9.0, 0.0, 0.0, 0.0, 9.0, 0.0, 0.0, 0.0, 16.0],
-                "position_covariance_type": 2
-            ]
-        ])
-        sendJson([
-            "op": "publish",
-            "topic": gpsVelTopic,
-            "msg": [
-                "header": [
-                    "stamp": stamp,
-                    "frame_id": "person_gps_frame"
-                ],
-                "twist": [
-                    "linear": ["x": vx, "y": vy, "z": 0.0],
-                    "angular": ["x": 0.0, "y": 0.0, "z": 0.0]
-                ]
-            ]
-        ])
     }
 
     func publishFrameMeta(frameIdx: Int, phoneTsUnix: Double) {
@@ -929,14 +860,11 @@ final class SyncEventClient: ObservableObject {
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
               let text = String(data: data, encoding: .utf8) else { return }
         task.send(.string(text)) { err in
-            if let err = err { print("❌ sync send error: \(err)") }
+            if let err = err {
+                print("❌ sync send error: \(err)")
+                self.scheduleReconnect()
+            }
         }
-    }
-
-    private func makeRosStamp(fromUnix ts: Double) -> [String: Int] {
-        let sec = Int(ts)
-        let nsec = Int((ts - Double(sec)) * 1_000_000_000.0)
-        return ["sec": sec, "nanosec": max(0, nsec)]
     }
 
     private func receiveLoop() {
@@ -950,7 +878,21 @@ final class SyncEventClient: ObservableObject {
                 self.receiveLoop()
             case .failure(let err):
                 print("❌ sync recv error: \(err)")
+                self.scheduleReconnect()
             }
+        }
+    }
+
+    private func scheduleReconnect() {
+        guard isRunning else { return }
+        reconnectTimer?.invalidate()
+        reconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+            guard let self = self, self.isRunning else { return }
+            self.webSocketTask?.cancel(with: .goingAway, reason: nil)
+            self.webSocketTask = nil
+            self.urlSession?.invalidateAndCancel()
+            self.urlSession = nil
+            self.connect()
         }
     }
 
@@ -969,8 +911,60 @@ final class SyncEventClient: ObservableObject {
     }
 }
 
-extension SyncEventClient: RosFrameDelegate {
+final class ImageStreamClient: ObservableObject, RosFrameDelegate {
+    @Published var rosBridgeHost: String = "172.20.10.3"
+    private let rosBridgePort: UInt16 = 9090
+    private var webSocketTask: URLSessionWebSocketTask?
+    private var urlSession: URLSession?
+    private var reconnectTimer: Timer?
+    private var isRunning = false
+    private let colorImageTopic = "/camera_person/color/image_raw/compressed"
+    private let depthImageTopic = "/camera_person/depth/image_raw/compressed"
+    private let publishQueue = DispatchQueue(label: "image.publish.queue", qos: .userInitiated)
+    private var lastImagePublishTs: TimeInterval = 0
+    private let imagePublishInterval: TimeInterval = 0.2
     private static let ciContext = CIContext(options: nil)
+    
+    func start() {
+        isRunning = true
+        connect()
+    }
+    
+    func stop() {
+        isRunning = false
+        reconnectTimer?.invalidate()
+        reconnectTimer = nil
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
+        urlSession?.invalidateAndCancel()
+        urlSession = nil
+    }
+    
+    private func connect() {
+        guard isRunning else { return }
+        let urlString = "ws://\(rosBridgeHost):\(rosBridgePort)"
+        guard let url = URL(string: urlString) else { return }
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 10
+        urlSession = URLSession(configuration: config)
+        webSocketTask = urlSession?.webSocketTask(with: url)
+        webSocketTask?.resume()
+        advertiseTopics()
+        receiveLoop()
+    }
+    
+    private func advertiseTopics() {
+        sendJson([
+            "op": "advertise",
+            "topic": colorImageTopic,
+            "type": "sensor_msgs/msg/CompressedImage"
+        ])
+        sendJson([
+            "op": "advertise",
+            "topic": depthImageTopic,
+            "type": "sensor_msgs/msg/CompressedImage"
+        ])
+    }
 
     func didCaptureFrame(_ sampleBuffer: CMSampleBuffer, depthData: AVDepthData?) {
         let now = Date().timeIntervalSince1970
@@ -1059,6 +1053,213 @@ extension SyncEventClient: RosFrameDelegate {
         guard written > 0 else { return nil }
         dst.removeSubrange(written..<dst.count)
         return dst
+    }
+    
+    private func makeRosStamp(fromUnix ts: Double) -> [String: Int] {
+        let sec = Int(ts)
+        let nsec = Int((ts - Double(sec)) * 1_000_000_000.0)
+        return ["sec": sec, "nanosec": max(0, nsec)]
+    }
+    
+    private func sendJson(_ obj: [String: Any]) {
+        guard let task = webSocketTask else { return }
+        guard let data = try? JSONSerialization.data(withJSONObject: obj),
+              let text = String(data: data, encoding: .utf8) else { return }
+        task.send(.string(text)) { err in
+            if let err = err {
+                print("❌ image send error: \(err)")
+                self.scheduleReconnect()
+            }
+        }
+    }
+
+    private func receiveLoop() {
+        webSocketTask?.receive { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success:
+                self.receiveLoop()
+            case .failure(let err):
+                print("❌ image recv error: \(err)")
+                self.scheduleReconnect()
+            }
+        }
+    }
+    
+    private func scheduleReconnect() {
+        guard isRunning else { return }
+        reconnectTimer?.invalidate()
+        reconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+            guard let self = self, self.isRunning else { return }
+            self.webSocketTask?.cancel(with: .goingAway, reason: nil)
+            self.webSocketTask = nil
+            self.urlSession?.invalidateAndCancel()
+            self.urlSession = nil
+            self.connect()
+        }
+    }
+}
+
+final class SensorStreamClient: ObservableObject {
+    @Published var rosBridgeHost: String = "172.20.10.3"
+    private let rosBridgePort: UInt16 = 9090
+    private var webSocketTask: URLSessionWebSocketTask?
+    private var urlSession: URLSession?
+    private var reconnectTimer: Timer?
+    private var isRunning = false
+    private let imuTopic = "/camera_person/imu"
+    private let gpsFixTopic = "/camera_person/gps/fix"
+    private let gpsVelTopic = "/camera_person/gps/vel"
+    
+    func start() {
+        isRunning = true
+        connect()
+    }
+    
+    func stop() {
+        isRunning = false
+        reconnectTimer?.invalidate()
+        reconnectTimer = nil
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
+        urlSession?.invalidateAndCancel()
+        urlSession = nil
+    }
+    
+    private func connect() {
+        guard isRunning else { return }
+        let urlString = "ws://\(rosBridgeHost):\(rosBridgePort)"
+        guard let url = URL(string: urlString) else { return }
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 10
+        urlSession = URLSession(configuration: config)
+        webSocketTask = urlSession?.webSocketTask(with: url)
+        webSocketTask?.resume()
+        advertiseTopics()
+        receiveLoop()
+    }
+    
+    private func advertiseTopics() {
+        sendJson([
+            "op": "advertise",
+            "topic": imuTopic,
+            "type": "sensor_msgs/msg/Imu"
+        ])
+        sendJson([
+            "op": "advertise",
+            "topic": gpsFixTopic,
+            "type": "sensor_msgs/msg/NavSatFix"
+        ])
+        sendJson([
+            "op": "advertise",
+            "topic": gpsVelTopic,
+            "type": "geometry_msgs/msg/TwistStamped"
+        ])
+    }
+    
+    func publishImu(phoneTsUnix: Double, ax: Double, ay: Double, az: Double, gx: Double, gy: Double, gz: Double) {
+        let stamp = makeRosStamp(fromUnix: phoneTsUnix)
+        let msg: [String: Any] = [
+            "header": [
+                "stamp": stamp,
+                "frame_id": "person_phone_imu_frame"
+            ],
+            "orientation": ["x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0],
+            "orientation_covariance": [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            "angular_velocity": ["x": gx, "y": gy, "z": gz],
+            "angular_velocity_covariance": [0.02, 0.0, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0, 0.02],
+            "linear_acceleration": ["x": ax, "y": ay, "z": az],
+            "linear_acceleration_covariance": [0.04, 0.0, 0.0, 0.0, 0.04, 0.0, 0.0, 0.0, 0.04]
+        ]
+        sendJson([
+            "op": "publish",
+            "topic": imuTopic,
+            "msg": msg
+        ])
+    }
+    
+    func publishGps(phoneTsUnix: Double, lat: Double, lon: Double, altM: Double, speedMps: Double, headingDeg: Double) {
+        let stamp = makeRosStamp(fromUnix: phoneTsUnix)
+        let headingRad = headingDeg * .pi / 180.0
+        let vx = speedMps * sin(headingRad)
+        let vy = speedMps * cos(headingRad)
+        sendJson([
+            "op": "publish",
+            "topic": gpsFixTopic,
+            "msg": [
+                "header": [
+                    "stamp": stamp,
+                    "frame_id": "person_gps_frame"
+                ],
+                "status": [
+                    "status": 0,
+                    "service": 1
+                ],
+                "latitude": lat,
+                "longitude": lon,
+                "altitude": altM,
+                "position_covariance": [9.0, 0.0, 0.0, 0.0, 9.0, 0.0, 0.0, 0.0, 16.0],
+                "position_covariance_type": 2
+            ]
+        ])
+        sendJson([
+            "op": "publish",
+            "topic": gpsVelTopic,
+            "msg": [
+                "header": [
+                    "stamp": stamp,
+                    "frame_id": "person_gps_frame"
+                ],
+                "twist": [
+                    "linear": ["x": vx, "y": vy, "z": 0.0],
+                    "angular": ["x": 0.0, "y": 0.0, "z": 0.0]
+                ]
+            ]
+        ])
+    }
+    
+    private func makeRosStamp(fromUnix ts: Double) -> [String: Int] {
+        let sec = Int(ts)
+        let nsec = Int((ts - Double(sec)) * 1_000_000_000.0)
+        return ["sec": sec, "nanosec": max(0, nsec)]
+    }
+    
+    private func sendJson(_ obj: [String: Any]) {
+        guard let task = webSocketTask else { return }
+        guard let data = try? JSONSerialization.data(withJSONObject: obj),
+              let text = String(data: data, encoding: .utf8) else { return }
+        task.send(.string(text)) { err in
+            if let err = err {
+                print("❌ sensor send error: \(err)")
+                self.scheduleReconnect()
+            }
+        }
+    }
+    
+    private func receiveLoop() {
+        webSocketTask?.receive { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success:
+                self.receiveLoop()
+            case .failure(let err):
+                print("❌ sensor recv error: \(err)")
+                self.scheduleReconnect()
+            }
+        }
+    }
+    
+    private func scheduleReconnect() {
+        guard isRunning else { return }
+        reconnectTimer?.invalidate()
+        reconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+            guard let self = self, self.isRunning else { return }
+            self.webSocketTask?.cancel(with: .goingAway, reason: nil)
+            self.webSocketTask = nil
+            self.urlSession?.invalidateAndCancel()
+            self.urlSession = nil
+            self.connect()
+        }
     }
 }
 
