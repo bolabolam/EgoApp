@@ -911,13 +911,14 @@ final class SyncEventClient: ObservableObject {
     }
 }
 
-final class ImageStreamClient: ObservableObject, RosFrameDelegate {
+final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URLSessionWebSocketDelegate {
     @Published var rosBridgeHost: String = "172.20.10.3"
     private let rosBridgePort: UInt16 = 9090
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
     private var reconnectTimer: Timer?
     private var isRunning = false
+    private var isConnected = false
     private let colorImageTopic = "/camera_person/color/image_raw/compressed"
     private let depthImageTopic = "/camera_person/depth/image_raw/compressed"
     private let publishQueue = DispatchQueue(label: "image.publish.queue", qos: .userInitiated)
@@ -932,6 +933,7 @@ final class ImageStreamClient: ObservableObject, RosFrameDelegate {
     
     func stop() {
         isRunning = false
+        isConnected = false
         reconnectTimer?.invalidate()
         reconnectTimer = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
@@ -942,14 +944,14 @@ final class ImageStreamClient: ObservableObject, RosFrameDelegate {
     
     private func connect() {
         guard isRunning else { return }
+        isConnected = false
         let urlString = "ws://\(rosBridgeHost):\(rosBridgePort)"
         guard let url = URL(string: urlString) else { return }
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
-        urlSession = URLSession(configuration: config)
+        urlSession = URLSession(configuration: config, delegate: self, delegateQueue: OperationQueue())
         webSocketTask = urlSession?.webSocketTask(with: url)
         webSocketTask?.resume()
-        advertiseTopics()
         receiveLoop()
     }
     
@@ -967,6 +969,7 @@ final class ImageStreamClient: ObservableObject, RosFrameDelegate {
     }
 
     func didCaptureFrame(_ sampleBuffer: CMSampleBuffer, depthData: AVDepthData?) {
+        guard isConnected else { return }
         let now = Date().timeIntervalSince1970
         guard now - lastImagePublishTs >= imagePublishInterval else { return }
         lastImagePublishTs = now
@@ -1062,7 +1065,7 @@ final class ImageStreamClient: ObservableObject, RosFrameDelegate {
     }
     
     private func sendJson(_ obj: [String: Any]) {
-        guard let task = webSocketTask else { return }
+        guard isConnected, let task = webSocketTask else { return }
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
               let text = String(data: data, encoding: .utf8) else { return }
         task.send(.string(text)) { err in
@@ -1080,6 +1083,7 @@ final class ImageStreamClient: ObservableObject, RosFrameDelegate {
             case .success:
                 self.receiveLoop()
             case .failure(let err):
+                self.isConnected = false
                 print("❌ image recv error: \(err)")
                 self.scheduleReconnect()
             }
@@ -1091,6 +1095,7 @@ final class ImageStreamClient: ObservableObject, RosFrameDelegate {
         reconnectTimer?.invalidate()
         reconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
             guard let self = self, self.isRunning else { return }
+            self.isConnected = false
             self.webSocketTask?.cancel(with: .goingAway, reason: nil)
             self.webSocketTask = nil
             self.urlSession?.invalidateAndCancel()
@@ -1098,15 +1103,28 @@ final class ImageStreamClient: ObservableObject, RosFrameDelegate {
             self.connect()
         }
     }
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        isConnected = true
+        print("🖼️ image ws connected")
+        advertiseTopics()
+    }
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        isConnected = false
+        print("🖼️ image ws closed: \(closeCode.rawValue)")
+        scheduleReconnect()
+    }
 }
 
-final class SensorStreamClient: ObservableObject {
+final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketDelegate {
     @Published var rosBridgeHost: String = "172.20.10.3"
     private let rosBridgePort: UInt16 = 9090
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
     private var reconnectTimer: Timer?
     private var isRunning = false
+    private var isConnected = false
     private let imuTopic = "/camera_person/imu"
     private let gpsFixTopic = "/camera_person/gps/fix"
     private let gpsVelTopic = "/camera_person/gps/vel"
@@ -1118,6 +1136,7 @@ final class SensorStreamClient: ObservableObject {
     
     func stop() {
         isRunning = false
+        isConnected = false
         reconnectTimer?.invalidate()
         reconnectTimer = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
@@ -1128,14 +1147,14 @@ final class SensorStreamClient: ObservableObject {
     
     private func connect() {
         guard isRunning else { return }
+        isConnected = false
         let urlString = "ws://\(rosBridgeHost):\(rosBridgePort)"
         guard let url = URL(string: urlString) else { return }
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
-        urlSession = URLSession(configuration: config)
+        urlSession = URLSession(configuration: config, delegate: self, delegateQueue: OperationQueue())
         webSocketTask = urlSession?.webSocketTask(with: url)
         webSocketTask?.resume()
-        advertiseTopics()
         receiveLoop()
     }
     
@@ -1158,6 +1177,7 @@ final class SensorStreamClient: ObservableObject {
     }
     
     func publishImu(phoneTsUnix: Double, ax: Double, ay: Double, az: Double, gx: Double, gy: Double, gz: Double) {
+        guard isConnected else { return }
         let stamp = makeRosStamp(fromUnix: phoneTsUnix)
         let msg: [String: Any] = [
             "header": [
@@ -1179,6 +1199,7 @@ final class SensorStreamClient: ObservableObject {
     }
     
     func publishGps(phoneTsUnix: Double, lat: Double, lon: Double, altM: Double, speedMps: Double, headingDeg: Double) {
+        guard isConnected else { return }
         let stamp = makeRosStamp(fromUnix: phoneTsUnix)
         let headingRad = headingDeg * .pi / 180.0
         let vx = speedMps * sin(headingRad)
@@ -1225,7 +1246,7 @@ final class SensorStreamClient: ObservableObject {
     }
     
     private func sendJson(_ obj: [String: Any]) {
-        guard let task = webSocketTask else { return }
+        guard isConnected, let task = webSocketTask else { return }
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
               let text = String(data: data, encoding: .utf8) else { return }
         task.send(.string(text)) { err in
@@ -1243,6 +1264,7 @@ final class SensorStreamClient: ObservableObject {
             case .success:
                 self.receiveLoop()
             case .failure(let err):
+                self.isConnected = false
                 print("❌ sensor recv error: \(err)")
                 self.scheduleReconnect()
             }
@@ -1254,12 +1276,25 @@ final class SensorStreamClient: ObservableObject {
         reconnectTimer?.invalidate()
         reconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
             guard let self = self, self.isRunning else { return }
+            self.isConnected = false
             self.webSocketTask?.cancel(with: .goingAway, reason: nil)
             self.webSocketTask = nil
             self.urlSession?.invalidateAndCancel()
             self.urlSession = nil
             self.connect()
         }
+    }
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        isConnected = true
+        print("🧭 sensor ws connected")
+        advertiseTopics()
+    }
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        isConnected = false
+        print("🧭 sensor ws closed: \(closeCode.rawValue)")
+        scheduleReconnect()
     }
 }
 
