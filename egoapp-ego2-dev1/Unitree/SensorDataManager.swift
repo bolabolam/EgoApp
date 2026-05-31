@@ -29,10 +29,18 @@ final class SensorDataManager: NSObject, ObservableObject {
     @Published var isSimulatedBySoftware: Bool?
     @Published var isProducedByAccessory: Bool?
     
+    /// Called on every device-motion sample (~50 Hz) with the raw acceleration
+    /// and rotation-rate vectors. Wired up by the view to publish/log IMU at the
+    /// full sensor rate, independent of the 5 Hz frame_meta/GPS timer.
+    var onImuSample: ((SensorVector, SensorVector) -> Void)?
+
     private let motionManager = CMMotionManager()
     private let locationManager = CLLocationManager()
     private var previousLocation: CLLocation?
     private var locationRefreshTimer: Timer?
+    /// Counts motion samples so the @Published UI vars update at ~10 Hz instead
+    /// of the full 50 Hz, keeping SwiftUI from recomputing `body` 50x/sec.
+    private var imuUiThrottle = 0
     
     override init() {
         super.init()
@@ -69,24 +77,35 @@ final class SensorDataManager: NSObject, ObservableObject {
     private func startMotionUpdates() {
         guard motionManager.isDeviceMotionAvailable else { return }
         
-        motionManager.deviceMotionUpdateInterval = 0.1
+        motionManager.deviceMotionUpdateInterval = 0.02 // 50 Hz
         motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let self, let motion else { return }
-            self.acceleration = SensorVector(
+            let accel = SensorVector(
                 x: motion.userAcceleration.x,
                 y: motion.userAcceleration.y,
                 z: motion.userAcceleration.z
             )
-            self.rotationRate = SensorVector(
+            let gyro = SensorVector(
                 x: motion.rotationRate.x,
                 y: motion.rotationRate.y,
                 z: motion.rotationRate.z
             )
-            self.attitude = SensorVector(
-                x: motion.attitude.roll,
-                y: motion.attitude.pitch,
-                z: motion.attitude.yaw
-            )
+
+            // Publish/log every sample at the full 50 Hz rate.
+            self.onImuSample?(accel, gyro)
+
+            // Throttle UI-bound @Published updates to ~10 Hz.
+            self.imuUiThrottle += 1
+            if self.imuUiThrottle >= 5 {
+                self.imuUiThrottle = 0
+                self.acceleration = accel
+                self.rotationRate = gyro
+                self.attitude = SensorVector(
+                    x: motion.attitude.roll,
+                    y: motion.attitude.pitch,
+                    z: motion.attitude.yaw
+                )
+            }
         }
     }
     

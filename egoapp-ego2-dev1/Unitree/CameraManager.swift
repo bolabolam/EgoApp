@@ -28,6 +28,9 @@ class CameraManager: NSObject, ObservableObject {
 
     // ROS frame delegate for publishing RGBD topics
     weak var rosFrameDelegate: RosFrameDelegate?
+
+    // Local recorder delegate: receives full-resolution frames for archival mp4
+    weak var localVideoDelegate: LocalVideoFrameDelegate?
     
     private var isCameraSetup = false
     
@@ -608,6 +611,7 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
         // This is called when using video output without synchronizer (no depth data)
         streamDelegate?.didCaptureVideoFrame(sampleBuffer, depthData: nil)
         rosFrameDelegate?.didCaptureFrame(sampleBuffer, depthData: nil)
+        localVideoDelegate?.recordVideoFrame(sampleBuffer)
     }
 }
 
@@ -631,6 +635,7 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
         // Pass video data to video stream server
         streamDelegate?.didCaptureVideoFrame(videoSampleBuffer, depthData: depthData)
         rosFrameDelegate?.didCaptureFrame(videoSampleBuffer, depthData: depthData)
+        localVideoDelegate?.recordVideoFrame(videoSampleBuffer)
         
         // Pass depth data to point cloud server
         if let depthData = depthData {
@@ -658,4 +663,10 @@ protocol PointCloudDelegate: AnyObject {
 // MARK: - ROS Frame Delegate Protocol
 protocol RosFrameDelegate: AnyObject {
     func didCaptureFrame(_ sampleBuffer: CMSampleBuffer, depthData: AVDepthData?)
+}
+
+// MARK: - Local Video Recording Delegate Protocol
+protocol LocalVideoFrameDelegate: AnyObject {
+    /// Called on the camera output queue with each full-resolution video frame.
+    func recordVideoFrame(_ sampleBuffer: CMSampleBuffer)
 }

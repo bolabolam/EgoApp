@@ -26,6 +26,7 @@ struct ContentView: View {
     @State private var showSensorPanel = false
     @FocusState private var isIPFieldFocused: Bool
     @StateObject private var sessionLogger = SessionLogger()
+    @StateObject private var videoRecorder = LocalVideoRecorder()
     @StateObject private var syncClient = SyncEventClient()
     @StateObject private var imageClient = ImageStreamClient()
     @StateObject private var sensorClient = SensorStreamClient()
@@ -163,7 +164,25 @@ struct ContentView: View {
             cameraManager.streamDelegate = streamServer
             cameraManager.pointCloudDelegate = pointCloudServer
             cameraManager.rosFrameDelegate = imageClient
+            cameraManager.localVideoDelegate = videoRecorder
             print("✅ Set video and point cloud delegates")
+
+            // Publish/log IMU at the full 50 Hz sensor rate, decoupled from the
+            // 5 Hz frame_meta/GPS timer.
+            sensorManager.onImuSample = { accel, gyro in
+                guard cameraManager.isSessionRunning else { return }
+                let ts = Date().timeIntervalSince1970
+                sessionLogger.logImu(
+                    phoneTsUnix: ts,
+                    ax: accel.x, ay: accel.y, az: accel.z,
+                    gx: gyro.x, gy: gyro.y, gz: gyro.z
+                )
+                sensorClient.publishImu(
+                    phoneTsUnix: ts,
+                    ax: accel.x, ay: accel.y, az: accel.z,
+                    gx: gyro.x, gy: gyro.y, gz: gyro.z
+                )
+            }
             
             // Initialize previous states
             previousCameraState = cameraManager.isSessionRunning
@@ -211,24 +230,8 @@ struct ContentView: View {
             let ts = Date().timeIntervalSince1970
             sessionLogger.logFrameMeta(frameIdx: frameIdx, phoneTsUnix: ts)
             syncClient.publishFrameMeta(frameIdx: frameIdx, phoneTsUnix: ts)
-            sessionLogger.logImu(
-                phoneTsUnix: ts,
-                ax: sensorManager.acceleration.x,
-                ay: sensorManager.acceleration.y,
-                az: sensorManager.acceleration.z,
-                gx: sensorManager.rotationRate.x,
-                gy: sensorManager.rotationRate.y,
-                gz: sensorManager.rotationRate.z
-            )
-            sensorClient.publishImu(
-                phoneTsUnix: ts,
-                ax: sensorManager.acceleration.x,
-                ay: sensorManager.acceleration.y,
-                az: sensorManager.acceleration.z,
-                gx: sensorManager.rotationRate.x,
-                gy: sensorManager.rotationRate.y,
-                gz: sensorManager.rotationRate.z
-            )
+            // IMU is published at the full 50 Hz sensor rate via
+            // sensorManager.onImuSample (wired up in `.task`), not here.
             if let lat = sensorManager.latitude, let lon = sensorManager.longitude {
                 sessionLogger.logGps(
                     phoneTsUnix: ts,
@@ -637,6 +640,7 @@ struct ContentView: View {
             streamServer.stopServer()
             pointCloudServer.stopServer()
             sensorManager.stopUpdates()
+            videoRecorder.stop()
             sessionLogger.endSession()
             syncClient.publishRecordStatus(isRecording: false, reason: "manual_or_sync_stop")
             announceAction("Stopping camera and servers")
@@ -644,6 +648,9 @@ struct ContentView: View {
             print("🔘 >>> STARTING camera, video server, and ROS2 client")
             frameIdx = 0
             sessionLogger.startNewSession()
+            if let dir = sessionLogger.sessionDirectory {
+                videoRecorder.start(in: dir)
+            }
             sensorManager.startUpdates()
             cameraManager.startSession()
             streamServer.startServer()
@@ -704,7 +711,13 @@ struct ContentView: View {
 
 final class SessionLogger: ObservableObject {
     private var sessionDir: URL?
+    /// Current session directory, so other recorders (e.g. local video) can write
+    /// into the same folder.
+    var sessionDirectory: URL? { sessionDir }
     private let fm = FileManager.default
+    // Serial queue so 50 Hz IMU appends never block the main thread while still
+    // preserving write order.
+    private let ioQueue = DispatchQueue(label: "session.logger.io")
 
     func startNewSession() {
         let ts = DateFormatter.sessionFormatter.string(from: Date())
@@ -756,22 +769,156 @@ final class SessionLogger: ObservableObject {
         guard let dir = sessionDir else { return }
         let f = dir.appendingPathComponent(file)
         guard let data = line.data(using: .utf8) else { return }
-        if !fm.fileExists(atPath: f.path) {
-            try? data.write(to: f)
-            return
-        }
-        do {
-            let fh = try FileHandle(forWritingTo: f)
-            try fh.seekToEnd()
-            try fh.write(contentsOf: data)
-            try fh.close()
-        } catch {
-            print("❌ append failed for \(file): \(error)")
+        ioQueue.async {
+            if !FileManager.default.fileExists(atPath: f.path) {
+                try? data.write(to: f)
+                return
+            }
+            do {
+                let fh = try FileHandle(forWritingTo: f)
+                try fh.seekToEnd()
+                try fh.write(contentsOf: data)
+                try fh.close()
+            } catch {
+                print("❌ append failed for \(file): \(error)")
+            }
         }
     }
 
     private func fmt(_ t: Double) -> String {
         String(format: "%.6f", t)
+    }
+}
+
+/// Records the full-resolution camera stream to a local `video.mp4` (H.264, high
+/// bitrate) plus a `video_frames.csv` that maps every encoded frame to the phone
+/// unix clock. This is the archival-quality copy; the rosbridge JPEG stream is
+/// only the low-bandwidth online preview.
+///
+/// `video_frames.csv` columns: `frame_idx,video_pts_sec,phone_ts_unix`
+/// - `frame_idx`     : 0-based index in mp4 decode order
+/// - `video_pts_sec` : presentation time in the mp4 (seconds from first frame)
+/// - `phone_ts_unix` : Date().timeIntervalSince1970 at capture — the SAME clock
+///                     as imu.csv / gps.csv / frame_meta.csv / sync_events.csv,
+///                     so every modality is alignable, and sync_events.csv ties
+///                     that phone clock to the robot clock.
+final class LocalVideoRecorder: NSObject, ObservableObject, LocalVideoFrameDelegate {
+    @Published private(set) var isRecording = false
+
+    private var writer: AVAssetWriter?
+    private var input: AVAssetWriterInput?
+    private var firstPTS: CMTime?
+    private var frameIdx = 0
+    private var csvHandle: FileHandle?
+    private let lock = NSLock()
+    private let ioQueue = DispatchQueue(label: "local.video.csv.io")
+
+    func start(in dir: URL) {
+        lock.lock(); defer { lock.unlock() }
+        guard writer == nil else { return }
+
+        let videoURL = dir.appendingPathComponent("video.mp4")
+        try? FileManager.default.removeItem(at: videoURL)
+        guard let w = try? AVAssetWriter(outputURL: videoURL, fileType: .mp4) else {
+            print("❌ LocalVideoRecorder: failed to create AVAssetWriter")
+            return
+        }
+        writer = w
+        input = nil
+        firstPTS = nil
+        frameIdx = 0
+
+        let csvURL = dir.appendingPathComponent("video_frames.csv")
+        FileManager.default.createFile(
+            atPath: csvURL.path,
+            contents: "frame_idx,video_pts_sec,phone_ts_unix\n".data(using: .utf8)
+        )
+        csvHandle = try? FileHandle(forWritingTo: csvURL)
+        csvHandle?.seekToEndOfFile()
+
+        DispatchQueue.main.async { self.isRecording = true }
+        print("🎥 LocalVideoRecorder started: \(videoURL.path)")
+    }
+
+    // Called on the camera output queue.
+    func recordVideoFrame(_ sampleBuffer: CMSampleBuffer) {
+        // Capture the wall clock immediately so the timestamp reflects capture
+        // time, not when the encoder happens to drain.
+        let ts = Date().timeIntervalSince1970
+
+        lock.lock()
+        guard let writer = writer else { lock.unlock(); return }
+
+        // Lazily create the input once we know the frame dimensions.
+        if input == nil {
+            guard let fmt = CMSampleBufferGetFormatDescription(sampleBuffer) else {
+                lock.unlock(); return
+            }
+            let dims = CMVideoFormatDescriptionGetDimensions(fmt)
+            let settings: [String: Any] = [
+                AVVideoCodecKey: AVVideoCodecType.h264,
+                AVVideoWidthKey: Int(dims.width),
+                AVVideoHeightKey: Int(dims.height),
+                AVVideoCompressionPropertiesKey: [
+                    AVVideoAverageBitRateKey: 20_000_000 // 20 Mbps, archival quality
+                ]
+            ]
+            let inp = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
+            inp.expectsMediaDataInRealTime = true
+            if writer.canAdd(inp) { writer.add(inp) }
+            input = inp
+        }
+        guard let input = input else { lock.unlock(); return }
+
+        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        if firstPTS == nil {
+            firstPTS = pts
+            writer.startWriting()
+            writer.startSession(atSourceTime: pts)
+        }
+
+        let idx = frameIdx
+        var appended = false
+        if writer.status == .writing && input.isReadyForMoreMediaData {
+            appended = input.append(sampleBuffer)
+        }
+        let relSec = CMTimeGetSeconds(CMTimeSubtract(pts, firstPTS ?? pts))
+        if appended { frameIdx += 1 }
+        let handle = csvHandle
+        lock.unlock()
+
+        if appended, let handle = handle {
+            let row = "\(idx),\(String(format: "%.6f", relSec)),\(String(format: "%.6f", ts))\n"
+            if let data = row.data(using: .utf8) {
+                ioQueue.async { try? handle.write(contentsOf: data) }
+            }
+        }
+    }
+
+    func stop() {
+        lock.lock()
+        let writerToFinish = writer
+        let inputToFinish = input
+        let handle = csvHandle
+        let hadFrames = firstPTS != nil
+        writer = nil
+        input = nil
+        firstPTS = nil
+        csvHandle = nil
+        lock.unlock()
+
+        DispatchQueue.main.async { self.isRecording = false }
+
+        if let writerToFinish = writerToFinish, hadFrames {
+            inputToFinish?.markAsFinished()
+            writerToFinish.finishWriting {
+                print("✅ Local video saved: \(writerToFinish.outputURL.path) (status: \(writerToFinish.status.rawValue))")
+            }
+        } else {
+            // No frames were ever appended; nothing to finalize.
+            writerToFinish?.cancelWriting()
+        }
+        ioQueue.async { try? handle?.close() }
     }
 }
 
@@ -934,7 +1081,7 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
     private let depthImageTopic = "/camera_person/depth/image_raw/compressed"
     private let publishQueue = DispatchQueue(label: "image.publish.queue", qos: .userInitiated)
     private var lastImagePublishTs: TimeInterval = 0
-    private let imagePublishInterval: TimeInterval = 0.2
+    private let imagePublishInterval: TimeInterval = 1.0 / 15.0 // 15 Hz
     private static let ciContext = CIContext(options: nil)
     
     func start() {
