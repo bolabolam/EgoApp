@@ -885,14 +885,20 @@ final class SyncEventClient: ObservableObject {
 
     private func scheduleReconnect() {
         guard isRunning else { return }
-        reconnectTimer?.invalidate()
-        reconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+        // Timer must be scheduled on the main run loop; this method is called
+        // from URLSession completion handlers running on a background queue
+        // with no active run loop, where a Timer would never fire.
+        DispatchQueue.main.async { [weak self] in
             guard let self = self, self.isRunning else { return }
-            self.webSocketTask?.cancel(with: .goingAway, reason: nil)
-            self.webSocketTask = nil
-            self.urlSession?.invalidateAndCancel()
-            self.urlSession = nil
-            self.connect()
+            self.reconnectTimer?.invalidate()
+            self.reconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+                guard let self = self, self.isRunning else { return }
+                self.webSocketTask?.cancel(with: .goingAway, reason: nil)
+                self.webSocketTask = nil
+                self.urlSession?.invalidateAndCancel()
+                self.urlSession = nil
+                self.connect()
+            }
         }
     }
 
@@ -1092,15 +1098,21 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
     
     private func scheduleReconnect() {
         guard isRunning else { return }
-        reconnectTimer?.invalidate()
-        reconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+        // Timer must be scheduled on the main run loop; this method is called
+        // from URLSession completion/delegate callbacks running on a background
+        // queue with no active run loop, where a Timer would never fire.
+        DispatchQueue.main.async { [weak self] in
             guard let self = self, self.isRunning else { return }
-            self.isConnected = false
-            self.webSocketTask?.cancel(with: .goingAway, reason: nil)
-            self.webSocketTask = nil
-            self.urlSession?.invalidateAndCancel()
-            self.urlSession = nil
-            self.connect()
+            self.reconnectTimer?.invalidate()
+            self.reconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+                guard let self = self, self.isRunning else { return }
+                self.isConnected = false
+                self.webSocketTask?.cancel(with: .goingAway, reason: nil)
+                self.webSocketTask = nil
+                self.urlSession?.invalidateAndCancel()
+                self.urlSession = nil
+                self.connect()
+            }
         }
     }
 
@@ -1273,15 +1285,21 @@ final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketD
     
     private func scheduleReconnect() {
         guard isRunning else { return }
-        reconnectTimer?.invalidate()
-        reconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+        // Timer must be scheduled on the main run loop; this method is called
+        // from URLSession completion/delegate callbacks running on a background
+        // queue with no active run loop, where a Timer would never fire.
+        DispatchQueue.main.async { [weak self] in
             guard let self = self, self.isRunning else { return }
-            self.isConnected = false
-            self.webSocketTask?.cancel(with: .goingAway, reason: nil)
-            self.webSocketTask = nil
-            self.urlSession?.invalidateAndCancel()
-            self.urlSession = nil
-            self.connect()
+            self.reconnectTimer?.invalidate()
+            self.reconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+                guard let self = self, self.isRunning else { return }
+                self.isConnected = false
+                self.webSocketTask?.cancel(with: .goingAway, reason: nil)
+                self.webSocketTask = nil
+                self.urlSession?.invalidateAndCancel()
+                self.urlSession = nil
+                self.connect()
+            }
         }
     }
 
