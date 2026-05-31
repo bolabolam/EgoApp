@@ -30,7 +30,12 @@ struct ContentView: View {
     @StateObject private var imageClient = ImageStreamClient()
     @StateObject private var sensorClient = SensorStreamClient()
     @State private var frameIdx: Int = 0
-    
+    // Hoisted out of `body` so it is created once. If declared inline in
+    // `.onReceive`, the high-frequency sensorManager updates (10 Hz) recompute
+    // `body` faster than 0.2s, recreating the publisher each time and resetting
+    // its countdown so it never fires (no IMU/GPS/frame_meta would publish).
+    private let metaPublishTimer = Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -200,7 +205,7 @@ struct ContentView: View {
             imageClient.start()
             sensorClient.start()
         }
-        .onReceive(Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()) { _ in
+        .onReceive(metaPublishTimer) { _ in
             guard cameraManager.isSessionRunning else { return }
             frameIdx += 1
             let ts = Date().timeIntervalSince1970
