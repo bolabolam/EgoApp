@@ -59,7 +59,7 @@ class PointCloudServer: NSObject, ObservableObject {
     
     override init() {
         // Load saved IP or use default
-        self.rosBridgeHost = UserDefaults.standard.string(forKey: "rosBridgeHost") ?? "192.168.3.25"
+        self.rosBridgeHost = UserDefaults.standard.string(forKey: "rosBridgeHost") ?? "172.20.10.3"
         super.init()
         print("☁️ PointCloudClient initialized (not started yet)")
         print("☁️ Will connect to: ws://\(rosBridgeHost):\(rosBridgePort)")

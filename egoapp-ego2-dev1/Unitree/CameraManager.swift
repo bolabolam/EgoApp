@@ -25,6 +25,9 @@ class CameraManager: NSObject, ObservableObject {
     
     // Point cloud delegate
     weak var pointCloudDelegate: PointCloudDelegate?
+
+    // ROS frame delegate for publishing RGBD topics
+    weak var rosFrameDelegate: RosFrameDelegate?
     
     private var isCameraSetup = false
     
@@ -604,6 +607,7 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         // This is called when using video output without synchronizer (no depth data)
         streamDelegate?.didCaptureVideoFrame(sampleBuffer, depthData: nil)
+        rosFrameDelegate?.didCaptureFrame(sampleBuffer, depthData: nil)
     }
 }
 
@@ -626,6 +630,7 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
         
         // Pass video data to video stream server
         streamDelegate?.didCaptureVideoFrame(videoSampleBuffer, depthData: depthData)
+        rosFrameDelegate?.didCaptureFrame(videoSampleBuffer, depthData: depthData)
         
         // Pass depth data to point cloud server
         if let depthData = depthData {
@@ -650,3 +655,7 @@ protocol PointCloudDelegate: AnyObject {
     func didCaptureDepthData(_ depthData: AVDepthData)
 }
 
+// MARK: - ROS Frame Delegate Protocol
+protocol RosFrameDelegate: AnyObject {
+    func didCaptureFrame(_ sampleBuffer: CMSampleBuffer, depthData: AVDepthData?)
+}

@@ -9,6 +9,8 @@ import SwiftUI
 import AVFoundation
 import CoreLocation
 import Foundation
+import UIKit
+import Compression
 
 struct ContentView: View {
     @StateObject private var cameraManager = CameraManager()
@@ -132,7 +134,9 @@ struct ContentView: View {
             if isShowing {
                 sensorManager.startUpdates()
             } else {
-                sensorManager.stopUpdates()
+                if !cameraManager.isSessionRunning {
+                    sensorManager.stopUpdates()
+                }
             }
         }
         .onTapGesture {
@@ -151,6 +155,7 @@ struct ContentView: View {
             // Set delegates directly
             cameraManager.streamDelegate = streamServer
             cameraManager.pointCloudDelegate = pointCloudServer
+            cameraManager.rosFrameDelegate = syncClient
             print("✅ Set video and point cloud delegates")
             
             // Initialize previous states
@@ -194,8 +199,25 @@ struct ContentView: View {
                 gy: sensorManager.rotationRate.y,
                 gz: sensorManager.rotationRate.z
             )
+            syncClient.publishImu(
+                phoneTsUnix: ts,
+                ax: sensorManager.acceleration.x,
+                ay: sensorManager.acceleration.y,
+                az: sensorManager.acceleration.z,
+                gx: sensorManager.rotationRate.x,
+                gy: sensorManager.rotationRate.y,
+                gz: sensorManager.rotationRate.z
+            )
             if let lat = sensorManager.latitude, let lon = sensorManager.longitude {
                 sessionLogger.logGps(
+                    phoneTsUnix: ts,
+                    lat: lat,
+                    lon: lon,
+                    altM: sensorManager.altitude ?? 0.0,
+                    speedMps: sensorManager.speed ?? 0.0,
+                    headingDeg: sensorManager.course ?? 0.0
+                )
+                syncClient.publishGps(
                     phoneTsUnix: ts,
                     lat: lat,
                     lon: lon,
@@ -591,6 +613,7 @@ struct ContentView: View {
             cameraManager.stopSession()
             streamServer.stopServer()
             pointCloudServer.stopServer()
+            sensorManager.stopUpdates()
             sessionLogger.endSession()
             syncClient.publishRecordStatus(isRecording: false, reason: "manual_or_sync_stop")
             announceAction("Stopping camera and servers")
@@ -598,6 +621,7 @@ struct ContentView: View {
             print("🔘 >>> STARTING camera, video server, and ROS2 client")
             frameIdx = 0
             sessionLogger.startNewSession()
+            sensorManager.startUpdates()
             cameraManager.startSession()
             streamServer.startServer()
             pointCloudServer.startServer()
@@ -735,7 +759,7 @@ struct SyncEvent {
 }
 
 final class SyncEventClient: ObservableObject {
-    @Published var rosBridgeHost: String = "192.168.3.25"
+    @Published var rosBridgeHost: String = "172.20.10.3"
     private let rosBridgePort: UInt16 = 9090
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
@@ -743,6 +767,14 @@ final class SyncEventClient: ObservableObject {
     private let topicName = "/dataset/sync_event"
     private let frameMetaTopic = "/camera_person/frame_meta"
     private let recordStatusTopic = "/camera_person/record_status"
+    private let colorImageTopic = "/camera_person/color/image_raw/compressed"
+    private let depthImageTopic = "/camera_person/depth/image_raw/compressed"
+    private let imuTopic = "/camera_person/imu"
+    private let gpsFixTopic = "/camera_person/gps/fix"
+    private let gpsVelTopic = "/camera_person/gps/vel"
+    private let publishQueue = DispatchQueue(label: "sync.publish.queue", qos: .userInitiated)
+    private var lastImagePublishTs: TimeInterval = 0
+    private let imagePublishInterval: TimeInterval = 0.2
 
     func start(onEvent: @escaping (SyncEvent) -> Void) {
         callback = onEvent
@@ -779,12 +811,98 @@ final class SyncEventClient: ObservableObject {
             "topic": recordStatusTopic,
             "type": "std_msgs/msg/String"
         ])
+        sendJson([
+            "op": "advertise",
+            "topic": colorImageTopic,
+            "type": "sensor_msgs/msg/CompressedImage"
+        ])
+        sendJson([
+            "op": "advertise",
+            "topic": depthImageTopic,
+            "type": "sensor_msgs/msg/CompressedImage"
+        ])
+        sendJson([
+            "op": "advertise",
+            "topic": imuTopic,
+            "type": "sensor_msgs/msg/Imu"
+        ])
+        sendJson([
+            "op": "advertise",
+            "topic": gpsFixTopic,
+            "type": "sensor_msgs/msg/NavSatFix"
+        ])
+        sendJson([
+            "op": "advertise",
+            "topic": gpsVelTopic,
+            "type": "geometry_msgs/msg/TwistStamped"
+        ])
         let advertise: [String: Any] = [
             "op": "subscribe",
             "topic": topicName,
             "type": "std_msgs/msg/String"
         ]
         sendJson(advertise)
+    }
+
+    func publishImu(phoneTsUnix: Double, ax: Double, ay: Double, az: Double, gx: Double, gy: Double, gz: Double) {
+        let stamp = makeRosStamp(fromUnix: phoneTsUnix)
+        let msg: [String: Any] = [
+            "header": [
+                "stamp": stamp,
+                "frame_id": "person_phone_imu_frame"
+            ],
+            "orientation": ["x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0],
+            "orientation_covariance": [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            "angular_velocity": ["x": gx, "y": gy, "z": gz],
+            "angular_velocity_covariance": [0.02, 0.0, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0, 0.02],
+            "linear_acceleration": ["x": ax, "y": ay, "z": az],
+            "linear_acceleration_covariance": [0.04, 0.0, 0.0, 0.0, 0.04, 0.0, 0.0, 0.0, 0.04]
+        ]
+        sendJson([
+            "op": "publish",
+            "topic": imuTopic,
+            "msg": msg
+        ])
+    }
+
+    func publishGps(phoneTsUnix: Double, lat: Double, lon: Double, altM: Double, speedMps: Double, headingDeg: Double) {
+        let stamp = makeRosStamp(fromUnix: phoneTsUnix)
+        let headingRad = headingDeg * .pi / 180.0
+        let vx = speedMps * sin(headingRad)
+        let vy = speedMps * cos(headingRad)
+        sendJson([
+            "op": "publish",
+            "topic": gpsFixTopic,
+            "msg": [
+                "header": [
+                    "stamp": stamp,
+                    "frame_id": "person_gps_frame"
+                ],
+                "status": [
+                    "status": 0,
+                    "service": 1
+                ],
+                "latitude": lat,
+                "longitude": lon,
+                "altitude": altM,
+                "position_covariance": [9.0, 0.0, 0.0, 0.0, 9.0, 0.0, 0.0, 0.0, 16.0],
+                "position_covariance_type": 2
+            ]
+        ])
+        sendJson([
+            "op": "publish",
+            "topic": gpsVelTopic,
+            "msg": [
+                "header": [
+                    "stamp": stamp,
+                    "frame_id": "person_gps_frame"
+                ],
+                "twist": [
+                    "linear": ["x": vx, "y": vy, "z": 0.0],
+                    "angular": ["x": 0.0, "y": 0.0, "z": 0.0]
+                ]
+            ]
+        ])
     }
 
     func publishFrameMeta(frameIdx: Int, phoneTsUnix: Double) {
@@ -815,6 +933,12 @@ final class SyncEventClient: ObservableObject {
         }
     }
 
+    private func makeRosStamp(fromUnix ts: Double) -> [String: Int] {
+        let sec = Int(ts)
+        let nsec = Int((ts - Double(sec)) * 1_000_000_000.0)
+        return ["sec": sec, "nanosec": max(0, nsec)]
+    }
+
     private func receiveLoop() {
         webSocketTask?.receive { [weak self] result in
             guard let self = self else { return }
@@ -842,6 +966,99 @@ final class SyncEventClient: ObservableObject {
         DispatchQueue.main.async {
             self.callback?(SyncEvent(seq: seq, event: event, robotTsIso: ts))
         }
+    }
+}
+
+extension SyncEventClient: RosFrameDelegate {
+    private static let ciContext = CIContext(options: nil)
+
+    func didCaptureFrame(_ sampleBuffer: CMSampleBuffer, depthData: AVDepthData?) {
+        let now = Date().timeIntervalSince1970
+        guard now - lastImagePublishTs >= imagePublishInterval else { return }
+        lastImagePublishTs = now
+        publishQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.publishColorImage(sampleBuffer: sampleBuffer, phoneTsUnix: now)
+            if let depthData = depthData {
+                self.publishDepthImage(depthData: depthData, phoneTsUnix: now)
+            }
+        }
+    }
+
+    private func publishColorImage(sampleBuffer: CMSampleBuffer, phoneTsUnix: Double) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        guard let cgImage = Self.ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
+        let image = UIImage(cgImage: cgImage)
+        guard let jpegData = image.jpegData(compressionQuality: 0.55) else { return }
+        let msg: [String: Any] = [
+            "header": [
+                "stamp": makeRosStamp(fromUnix: phoneTsUnix),
+                "frame_id": "person_camera_color_optical_frame"
+            ],
+            "format": "jpeg",
+            "data": jpegData.base64EncodedString()
+        ]
+        sendJson([
+            "op": "publish",
+            "topic": colorImageTopic,
+            "msg": msg
+        ])
+    }
+
+    private func publishDepthImage(depthData: AVDepthData, phoneTsUnix: Double) {
+        let depth32 = depthData.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
+        let depthMap = depth32.depthDataMap
+        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
+        guard let baseAddress = CVPixelBufferGetBaseAddress(depthMap) else { return }
+        let width = CVPixelBufferGetWidth(depthMap)
+        let height = CVPixelBufferGetHeight(depthMap)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
+        var depthBytes = Data(capacity: width * height * 4)
+        for y in 0..<height {
+            let row = baseAddress.advanced(by: y * bytesPerRow)
+            depthBytes.append(row.assumingMemoryBound(to: UInt8.self), count: width * 4)
+        }
+        guard let compressedDepth = zlibCompress(depthBytes) else { return }
+        let msg: [String: Any] = [
+            "header": [
+                "stamp": makeRosStamp(fromUnix: phoneTsUnix),
+                "frame_id": "person_camera_depth_optical_frame"
+            ],
+            "format": "32FC1;zlib;w=\(width);h=\(height);step=\(width * 4)",
+            "data": compressedDepth.base64EncodedString()
+        ]
+        sendJson([
+            "op": "publish",
+            "topic": depthImageTopic,
+            "msg": msg
+        ])
+    }
+
+    private func zlibCompress(_ input: Data) -> Data? {
+        if input.isEmpty { return Data() }
+        let dstCapacity = max(64, input.count + (input.count / 8) + 64)
+        var dst = Data(count: dstCapacity)
+        let written = input.withUnsafeBytes { srcBuf in
+            dst.withUnsafeMutableBytes { dstBuf in
+                guard let src = srcBuf.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                      let dstPtr = dstBuf.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                    return 0
+                }
+                return compression_encode_buffer(
+                    dstPtr,
+                    dstCapacity,
+                    src,
+                    input.count,
+                    nil,
+                    COMPRESSION_ZLIB
+                )
+            }
+        }
+        guard written > 0 else { return nil }
+        dst.removeSubrange(written..<dst.count)
+        return dst
     }
 }
 
