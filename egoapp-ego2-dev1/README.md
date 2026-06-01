@@ -18,13 +18,27 @@ ros2 launch rosbridge_server rosbridge_websocket_launch.xml
 2. 在 App 里配置 `ROS Bridge IP`（主机 IP，端口固定 `9090`）。  
 3. 点击 `Start` 开始手机侧采集和发布。
 
+> 采集顺序：**先点手机 `Start`，再到机器人端按 `s` 开始 rosbag**。这样手机
+> session 文件夹已建好，收到 `start_recording` 时能正常写入 `sync_events.csv`；
+> 反过来（机器人先发 start）会因手机还没建 session 而丢掉那条 start 行。
+
 ## 3. 当前 App 会做什么
 
-### 3.1 发布到 ROS2（低带宽元数据）
+### 3.1 发布到 ROS2
 
+点云 / 元数据：
 - `/camera_person/points`
 - `/camera_person/frame_meta`（`std_msgs/String`，JSON）
 - `/camera_person/record_status`（`std_msgs/String`，JSON）
+
+图像（压缩）：
+- `/camera_person/color/image_raw/compressed`（`sensor_msgs/CompressedImage`，JPEG）
+- `/camera_person/depth/image_raw/compressed`（`sensor_msgs/CompressedImage`）
+
+传感器：
+- `/camera_person/imu`
+- `/camera_person/gps/fix`
+- `/camera_person/gps/vel`
 
 ### 3.2 订阅 ROS2 同步话题
 
@@ -71,11 +85,13 @@ ros2 topic echo /dataset/sync_event
 
 ```bash
 python3 scripts/merge_robot_phone_timeline.py \
-  --robot-sync-csv data/aligned/robot_sync_events.csv \
-  --phone-sync-csv data/aligned/phone_sync_events.csv \
-  --phone-frame-csv data/aligned/phone_frame_meta.csv \
+  --robot-sync-csv data/dataset_bags/dataset_session_XXX/robot_sync_events.csv \
+  --phone-sync-csv  <phone_session>/sync_events.csv \
+  --phone-frame-csv <phone_session>/frame_meta.csv \
   --output-csv data/aligned/merged_timeline.csv
 ```
+
+`robot_sync_events.csv` 由机器人端录制脚本自动写入对应 session 目录，无需手工拼。
 
 ## 6. 常见问题
 
