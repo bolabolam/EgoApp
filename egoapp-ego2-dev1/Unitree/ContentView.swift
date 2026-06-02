@@ -31,6 +31,10 @@ struct ContentView: View {
     @StateObject private var imageClient = ImageStreamClient()
     @StateObject private var sensorClient = SensorStreamClient()
     @State private var frameIdx: Int = 0
+    // GPS is throttled below the 0.2s meta timer: real GPS only updates ~1 Hz,
+    // so publishing every tick produced ~98% duplicate fixes. Keep ~1 Hz.
+    @State private var lastGpsPublishTs: Double = 0
+    private let gpsPublishInterval: Double = 1.0  // seconds (≈1 Hz)
     // Hoisted out of `body` so it is created once. If declared inline in
     // `.onReceive`, the high-frequency sensorManager updates (10 Hz) recompute
     // `body` faster than 0.2s, recreating the publisher each time and resetting
@@ -232,7 +236,9 @@ struct ContentView: View {
             syncClient.publishFrameMeta(frameIdx: frameIdx, phoneTsUnix: ts)
             // IMU is published at the full 50 Hz sensor rate via
             // sensorManager.onImuSample (wired up in `.task`), not here.
-            if let lat = sensorManager.latitude, let lon = sensorManager.longitude {
+            if let lat = sensorManager.latitude, let lon = sensorManager.longitude,
+               ts - lastGpsPublishTs >= gpsPublishInterval {
+                lastGpsPublishTs = ts
                 sessionLogger.logGps(
                     phoneTsUnix: ts,
                     lat: lat,
@@ -247,7 +253,9 @@ struct ContentView: View {
                     lon: lon,
                     altM: sensorManager.altitude ?? 0.0,
                     speedMps: sensorManager.speed ?? 0.0,
-                    headingDeg: sensorManager.course ?? 0.0
+                    headingDeg: sensorManager.course ?? 0.0,
+                    hAccM: sensorManager.horizontalAccuracy ?? -1.0,
+                    vAccM: sensorManager.verticalAccuracy ?? -1.0
                 )
             }
         }
@@ -1362,12 +1370,24 @@ final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketD
         ])
     }
     
-    func publishGps(phoneTsUnix: Double, lat: Double, lon: Double, altM: Double, speedMps: Double, headingDeg: Double) {
+    func publishGps(phoneTsUnix: Double, lat: Double, lon: Double, altM: Double,
+                    speedMps: Double, headingDeg: Double,
+                    hAccM: Double, vAccM: Double) {
         guard isConnected else { return }
         let stamp = makeRosStamp(fromUnix: phoneTsUnix)
         let headingRad = headingDeg * .pi / 180.0
         let vx = speedMps * sin(headingRad)
         let vy = speedMps * cos(headingRad)
+
+        // Real GPS accuracy from CoreLocation (meters, 1-sigma). Negative means
+        // invalid -> report UNKNOWN covariance instead of a fake fixed value.
+        let hValid = hAccM > 0
+        let vValid = vAccM > 0
+        let hVar = hValid ? hAccM * hAccM : 0.0
+        let vVar = vValid ? vAccM * vAccM : (hValid ? hVar : 0.0)
+        // NavSatFix: 0=UNKNOWN, 2=DIAGONAL_KNOWN
+        let covType = hValid ? 2 : 0
+
         sendJson([
             "op": "publish",
             "topic": gpsFixTopic,
@@ -1383,8 +1403,8 @@ final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketD
                 "latitude": lat,
                 "longitude": lon,
                 "altitude": altM,
-                "position_covariance": [9.0, 0.0, 0.0, 0.0, 9.0, 0.0, 0.0, 0.0, 16.0],
-                "position_covariance_type": 2
+                "position_covariance": [hVar, 0.0, 0.0, 0.0, hVar, 0.0, 0.0, 0.0, vVar],
+                "position_covariance_type": covType
             ]
         ])
         sendJson([
