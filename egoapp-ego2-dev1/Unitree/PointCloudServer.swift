@@ -12,23 +12,44 @@ import ARKit
 import CommonCrypto
 
 enum RosBridgeDefaults {
-    static let currentHost = "172.20.10.4"
-    private static let savedHostKey = "rosBridgeHost"
-    private static let legacyDefaultHosts: Set<String> = ["172.20.10.3"]
+    /// Address of the machine running rosbridge. The phone's personal hotspot
+    /// hands out 172.20.10.x by DHCP (the phone itself is .1), so the host
+    /// moves between .2/.3/.4 as it reconnects — set a static lease on the
+    /// host to stop it drifting, or type the address into the app's IP panel.
+    static let currentHost = "172.20.10.3"
 
+    private static let savedHostKey = "rosBridgeHost"
+    private static let userSetKey = "rosBridgeHostWasSetByUser"
+
+    /// A host the user typed into the IP panel wins permanently. Otherwise we
+    /// follow `currentHost`, so bumping that constant still migrates phones
+    /// that never had one entered by hand.
+    ///
+    /// The previous version kept a `legacyDefaultHosts` blocklist and rewrote
+    /// any saved host that appeared in it. That silently reverted addresses
+    /// the user had entered on purpose — once the host machine landed back on
+    /// a blocklisted address, it could not be configured from the app at all.
     static func savedOrCurrentHost() -> String {
-        guard let savedHost = UserDefaults.standard.string(forKey: savedHostKey) else {
+        guard UserDefaults.standard.bool(forKey: userSetKey),
+              let savedHost = UserDefaults.standard.string(forKey: savedHostKey) else {
             UserDefaults.standard.set(currentHost, forKey: savedHostKey)
             return currentHost
         }
 
         let normalizedHost = savedHost.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedHost.isEmpty, !legacyDefaultHosts.contains(normalizedHost) else {
+        guard !normalizedHost.isEmpty else {
             UserDefaults.standard.set(currentHost, forKey: savedHostKey)
             return currentHost
         }
 
         return normalizedHost
+    }
+
+    /// Records a host the user chose explicitly, so it survives future changes
+    /// to `currentHost`.
+    static func saveUserHost(_ host: String) {
+        UserDefaults.standard.set(host, forKey: savedHostKey)
+        UserDefaults.standard.set(true, forKey: userSetKey)
     }
 }
 
@@ -40,8 +61,9 @@ class PointCloudServer: NSObject, ObservableObject {
     // ROS2 Bridge configuration - IP is configurable, port is fixed at 9090
     @Published var rosBridgeHost: String {
         didSet {
-            // Save to UserDefaults when changed
-            UserDefaults.standard.set(rosBridgeHost, forKey: "rosBridgeHost")
+            // Only reached when the IP panel saves; the initial value comes
+            // from init, where property observers do not fire.
+            RosBridgeDefaults.saveUserHost(rosBridgeHost)
             print("☁️ ROS2 Bridge IP updated to: \(rosBridgeHost)")
         }
     }
