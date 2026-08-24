@@ -880,8 +880,8 @@ final class LocalVideoRecorder: NSObject, ObservableObject, LocalVideoFrameDeleg
                 print("❌ LocalVideoRecorder: writer cannot add video input \(dims.width)x\(dims.height)")
                 writer.cancelWriting()
                 self.writer = nil
-                input = nil
-                firstPTS = nil
+                self.input = nil
+                self.firstPTS = nil
                 lock.unlock()
                 return
             }
@@ -896,9 +896,11 @@ final class LocalVideoRecorder: NSObject, ObservableObject, LocalVideoFrameDeleg
             guard writer.startWriting() else {
                 print("❌ LocalVideoRecorder: startWriting failed: \(writer.error?.localizedDescription ?? "unknown error")")
                 writer.cancelWriting()
+                // `input` and `writer` are shadowed here by the non-optional
+                // locals bound above, so the reset must go through `self`.
                 self.writer = nil
-                input = nil
-                firstPTS = nil
+                self.input = nil
+                self.firstPTS = nil
                 lock.unlock()
                 return
             }
