@@ -46,7 +46,7 @@ struct ContentView: View {
             ZStack {
                 appBackground
                     .ignoresSafeArea(.all)
-                
+
                 if !isInitialized {
                     VStack(spacing: 20) {
                         ProgressView()
@@ -58,14 +58,14 @@ struct ContentView: View {
                     }
                     .accessibilityLabel("App is initializing, please wait")
                 }
-                
+
                 ScrollViewReader { scrollProxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 12) {
                             previewPane(width: geometry.size.width)
                                 .padding(.top, geometry.safeAreaInsets.top + 6)
                                 .padding(.horizontal, 20)
-                            
+
                             VStack(spacing: 12) {
                                 servicePanel(
                                     icon: "video.fill",
@@ -73,7 +73,7 @@ struct ContentView: View {
                                     value: streamServer.serverURL,
                                     tint: streamServer.isServerRunning ? videoTint : .gray
                                 )
-                                
+
                                 pointCloudPanel
                             }
                             .onChange(of: streamServer.serverURL) { oldValue, newValue in
@@ -89,7 +89,7 @@ struct ContentView: View {
                                 }
                             }
                             .padding(.horizontal, 20)
-                            
+
                             cameraStateBar
                                 .padding(.horizontal, 20)
                                 .onChange(of: cameraManager.isSessionRunning) { oldValue, newValue in
@@ -98,10 +98,10 @@ struct ContentView: View {
                                         previousCameraState = newValue
                                     }
                                 }
-                            
+
                             primaryControl
                                 .padding(.horizontal, 20)
-                            
+
                             Color.clear.frame(height: geometry.safeAreaInsets.bottom + (isIPFieldFocused ? 280 : 92))
                         }
                         .frame(width: geometry.size.width)
@@ -119,7 +119,7 @@ struct ContentView: View {
                         scrollToIPConfig(with: scrollProxy)
                     }
                 }
-                
+
                 if showSensorPanel {
                     SensorDataPanel(sensorManager: sensorManager) {
                         withAnimation(.easeInOut(duration: 0.24)) {
@@ -129,7 +129,7 @@ struct ContentView: View {
                     .transition(.move(edge: .leading).combined(with: .opacity))
                     .zIndex(2)
                 }
-                
+
                 bottomNavigation
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .ignoresSafeArea(.all, edges: .bottom)
@@ -159,11 +159,11 @@ struct ContentView: View {
             // Run initialization asynchronously
             print("📱 App appeared, initializing...")
             print("📱 Note: Video server and ROS2 client will NOT start until you press Start")
-            
+
             // Load saved IP address
             rosBridgeIP = pointCloudServer.rosBridgeHost
             print("📱 Loaded ROS2 Bridge IP: \(rosBridgeIP)")
-            
+
             // Set delegates directly
             cameraManager.streamDelegate = streamServer
             cameraManager.pointCloudDelegate = pointCloudServer
@@ -187,20 +187,20 @@ struct ContentView: View {
                     gx: gyro.x, gy: gyro.y, gz: gyro.z
                 )
             }
-            
+
             // Initialize previous states
             previousCameraState = cameraManager.isSessionRunning
             previousServerURL = streamServer.serverURL
             previousPointCloudURL = pointCloudServer.serverURL
-            
+
             // Small delay to ensure smooth initialization
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-            
+
             await MainActor.run {
                 isInitialized = true
                 print("✅ App initialization complete (waiting for Start button)")
             }
-            
+
             // Announce app ready after UI is shown
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
             await MainActor.run {
@@ -272,13 +272,13 @@ struct ContentView: View {
             sessionLogger.endSession()
         }
     }
-    
+
     // MARK: - Layout
-    
+
     private var appBackground: Color {
         Color(red: 0.035, green: 0.047, blue: 0.063)
     }
-    
+
     private var cardBackground: LinearGradient {
         LinearGradient(
             colors: [
@@ -289,15 +289,15 @@ struct ContentView: View {
             endPoint: .bottomTrailing
         )
     }
-    
+
     private var videoTint: Color {
         Color(red: 0.22, green: 0.52, blue: 1.0)
     }
-    
+
     private var cloudTint: Color {
         Color(red: 0.72, green: 0.36, blue: 1.0)
     }
-    
+
     private var topBar: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
@@ -308,9 +308,9 @@ struct ContentView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(cameraManager.isSessionRunning ? .green : .white.opacity(0.55))
             }
-            
+
             Spacer()
-            
+
             HStack(spacing: 8) {
                 Circle()
                     .fill(cameraManager.isSessionRunning ? Color.green : Color.gray)
@@ -325,11 +325,11 @@ struct ContentView: View {
             .clipShape(Capsule())
         }
     }
-    
+
     private func previewPane(width: CGFloat) -> some View {
         let previewWidth = width - 40
         let previewHeight = min(previewWidth * 0.64, 300)
-        
+
         return ZStack(alignment: .bottomLeading) {
             if cameraManager.isSessionRunning {
                 CameraPreview(session: cameraManager.captureSession)
@@ -352,7 +352,7 @@ struct ContentView: View {
                         }
                     )
             }
-            
+
             HStack(spacing: 8) {
                 Image(systemName: cameraManager.isSessionRunning ? "record.circle.fill" : "pause.circle.fill")
                     .font(.system(size: 14, weight: .bold))
@@ -373,7 +373,7 @@ struct ContentView: View {
         )
         .shadow(color: cameraManager.isSessionRunning ? Color.green.opacity(0.22) : Color.clear, radius: 14, y: 8)
     }
-    
+
     private var pointCloudPanel: some View {
         VStack(spacing: 12) {
             servicePanel(
@@ -383,7 +383,7 @@ struct ContentView: View {
                 tint: pointCloudStatusColor,
                 trailing: AnyView(configureIPButton)
             )
-            
+
             if showIPConfig {
                 ipConfigPanel
                     .id("ipConfig")
@@ -391,7 +391,7 @@ struct ContentView: View {
             }
         }
     }
-    
+
     private func servicePanel(
         icon: String,
         title: String,
@@ -407,7 +407,7 @@ struct ContentView: View {
                     .frame(width: 28, height: 28)
                     .background(tint.opacity(0.22))
                     .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.system(size: 13, weight: .semibold))
@@ -418,9 +418,9 @@ struct ContentView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.68)
                 }
-                
+
                 Spacer(minLength: 8)
-                
+
                 if let trailing {
                     trailing
                 }
@@ -435,7 +435,7 @@ struct ContentView: View {
                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
     }
-    
+
     private var configureIPButton: some View {
         Button(action: {
             withAnimation(.easeInOut(duration: 0.2)) {
@@ -456,11 +456,11 @@ struct ContentView: View {
         .opacity(cameraManager.isSessionRunning ? 0.35 : 1.0)
         .accessibilityLabel(showIPConfig ? "Hide IP configuration" : "Configure IP")
     }
-    
+
     private var ipConfigPanel: some View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
-                TextField("192.168.x.x", text: $rosBridgeIP)
+                TextField(RosBridgeDefaults.currentHost, text: $rosBridgeIP)
                     .font(.system(size: 16, weight: .semibold, design: .monospaced))
                     .foregroundColor(.white)
                     .padding(.horizontal, 12)
@@ -475,7 +475,7 @@ struct ContentView: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .focused($isIPFieldFocused)
-                
+
                 Button(action: {
                     isIPFieldFocused = false
                     if isValidIP(rosBridgeIP) {
@@ -496,7 +496,7 @@ struct ContentView: View {
                 .disabled(!isValidIP(rosBridgeIP))
                 .accessibilityLabel("Save IP")
             }
-            
+
             HStack {
                 Text("Port")
                     .font(.system(size: 12, weight: .semibold))
@@ -515,20 +515,20 @@ struct ContentView: View {
                 .stroke(cloudTint.opacity(0.22), lineWidth: 1)
         )
     }
-    
+
     private var cameraStateBar: some View {
         HStack(spacing: 12) {
             Circle()
                 .fill(cameraManager.isSessionRunning ? Color.green : Color.red.opacity(0.72))
                 .frame(width: 12, height: 12)
                 .shadow(color: cameraManager.isSessionRunning ? .green : .clear, radius: 8)
-            
+
             Text(cameraManager.isSessionRunning ? "Camera Active" : "Camera Inactive")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundColor(.white.opacity(0.9))
-            
+
             Spacer()
-            
+
             Text(cameraManager.isSessionRunning ? "H.264 + Depth" : "Ready")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.white.opacity(0.45))
@@ -538,7 +538,7 @@ struct ContentView: View {
         .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
-    
+
     private var primaryControl: some View {
         Button(action: {
             handleStartStop()
@@ -546,7 +546,7 @@ struct ContentView: View {
             HStack(spacing: 12) {
                 Image(systemName: cameraManager.isSessionRunning ? "stop.fill" : "play.fill")
                     .font(.system(size: 20, weight: .bold))
-                
+
                 Text(cameraManager.isSessionRunning ? "Stop" : "Start")
                     .font(.system(size: 21, weight: .bold))
             }
@@ -562,19 +562,19 @@ struct ContentView: View {
             "Double tap to stop the camera and servers" :
             "Double tap to start the camera and servers")
     }
-    
+
     private var pointCloudStatusColor: Color {
         if pointCloudServer.connectedClients > 0 {
             return .green
         }
-        
+
         if pointCloudServer.serverURL.contains("onnecting") {
             return .yellow
         }
-        
+
         return cloudTint
     }
-    
+
     private var bottomNavigation: some View {
         HStack(spacing: 0) {
             bottomNavigationButton(
@@ -586,7 +586,7 @@ struct ContentView: View {
                     showSensorPanel = false
                 }
             }
-            
+
             bottomNavigationButton(
                 icon: "waveform.path.ecg",
                 title: "Sensor Data",
@@ -605,7 +605,7 @@ struct ContentView: View {
                 .background(.ultraThinMaterial)
         )
     }
-    
+
     private func bottomNavigationButton(
         icon: String,
         title: String,
@@ -623,7 +623,7 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
-    
+
     private func scrollToIPConfig(with proxy: ScrollViewProxy) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             withAnimation(.easeInOut(duration: 0.25)) {
@@ -631,17 +631,17 @@ struct ContentView: View {
             }
         }
     }
-    
+
     // MARK: - Actions
-    
+
     private func handleStartStop() {
         print("🔘 ========== BUTTON TAPPED ==========")
         print("🔘 Current state: \(cameraManager.isSessionRunning)")
-        
+
         // Hide IP config and dismiss keyboard
         showIPConfig = false
         isIPFieldFocused = false
-        
+
         if cameraManager.isSessionRunning {
             print("🔘 >>> STOPPING camera, video server, and ROS2 client")
             cameraManager.stopSession()
@@ -666,25 +666,25 @@ struct ContentView: View {
             syncClient.publishRecordStatus(isRecording: true, reason: "manual_or_sync_start")
             announceAction("Starting camera and servers")
         }
-        
+
         print("🔘 ====================================")
     }
-    
+
     // MARK: - Accessibility Announcements
-    
+
     private func announceAction(_ message: String) {
         DispatchQueue.main.async {
             UIAccessibility.post(notification: .announcement, argument: message)
         }
     }
-    
+
     private func announceCameraStateChange(_ isRunning: Bool) {
-        let message = isRunning ? 
-            "Camera started. Now capturing video with depth data." : 
+        let message = isRunning ?
+            "Camera started. Now capturing video with depth data." :
             "Camera stopped."
         announceAction(message)
     }
-    
+
     private func announceServerURLChange(_ url: String, serverType: String) {
         if url.starts(with: "http") || url.starts(with: "ws") {
             announceAction("\(serverType) connected at \(url)")
@@ -692,13 +692,13 @@ struct ContentView: View {
             announceAction("\(serverType) disconnected")
         }
     }
-    
+
     // MARK: - IP Validation
-    
+
     private func isValidIP(_ ip: String) -> Bool {
         let parts = ip.split(separator: ".")
         guard parts.count == 4 else { return false }
-        
+
         for part in parts {
             guard let num = Int(part), num >= 0, num <= 255 else {
                 return false
@@ -729,7 +729,10 @@ final class SessionLogger: ObservableObject {
 
     func startNewSession() {
         let ts = DateFormatter.sessionFormatter.string(from: Date())
-        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+        guard let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            print("❌ Session logger init failed: documents directory unavailable")
+            return
+        }
         let dir = docs.appendingPathComponent("dataset_session_\(ts)", isDirectory: true)
         do {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -873,7 +876,16 @@ final class LocalVideoRecorder: NSObject, ObservableObject, LocalVideoFrameDeleg
             ]
             let inp = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
             inp.expectsMediaDataInRealTime = true
-            if writer.canAdd(inp) { writer.add(inp) }
+            guard writer.canAdd(inp) else {
+                print("❌ LocalVideoRecorder: writer cannot add video input \(dims.width)x\(dims.height)")
+                writer.cancelWriting()
+                self.writer = nil
+                input = nil
+                firstPTS = nil
+                lock.unlock()
+                return
+            }
+            writer.add(inp)
             input = inp
         }
         guard let input = input else { lock.unlock(); return }
@@ -881,7 +893,15 @@ final class LocalVideoRecorder: NSObject, ObservableObject, LocalVideoFrameDeleg
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         if firstPTS == nil {
             firstPTS = pts
-            writer.startWriting()
+            guard writer.startWriting() else {
+                print("❌ LocalVideoRecorder: startWriting failed: \(writer.error?.localizedDescription ?? "unknown error")")
+                writer.cancelWriting()
+                self.writer = nil
+                input = nil
+                firstPTS = nil
+                lock.unlock()
+                return
+            }
             writer.startSession(atSourceTime: pts)
         }
 
@@ -937,7 +957,7 @@ struct SyncEvent {
 }
 
 final class SyncEventClient: ObservableObject {
-    @Published var rosBridgeHost: String = "172.20.10.3"
+    @Published var rosBridgeHost: String = RosBridgeDefaults.savedOrCurrentHost()
     private let rosBridgePort: UInt16 = 9090
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
@@ -1078,7 +1098,7 @@ final class SyncEventClient: ObservableObject {
 }
 
 final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URLSessionWebSocketDelegate {
-    @Published var rosBridgeHost: String = "172.20.10.3"
+    @Published var rosBridgeHost: String = RosBridgeDefaults.savedOrCurrentHost()
     private let rosBridgePort: UInt16 = 9090
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
@@ -1088,15 +1108,48 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
     private let colorImageTopic = "/camera_person/color/image_raw/compressed"
     private let depthImageTopic = "/camera_person/depth/image_raw/compressed"
     private let publishQueue = DispatchQueue(label: "image.publish.queue", qos: .userInitiated)
+    private let publishStateLock = NSLock()
+    /// True from the moment a frame starts encoding until the last websocket
+    /// send it produced has actually been written to the socket. While it is
+    /// set, incoming camera frames are dropped instead of queued: URLSession's
+    /// send queue is unbounded, so without this a WiFi stall makes base64 JPEG
+    /// and zlib depth payloads pile up in memory until iOS jetsams the app.
+    private var isPublishingFrame = false
+    private var pendingSends = 0
+    private var frameEncodingDone = true
+    /// Bumped by `resetPublishGate()` so completions from a torn-down socket
+    /// cannot decrement the counter belonging to a later frame.
+    private var publishGeneration = 0
+    private var droppedFrameCount = 0
+    private var lastDropLogTs: TimeInterval = 0
     private var lastImagePublishTs: TimeInterval = 0
     private let imagePublishInterval: TimeInterval = 1.0 / 15.0 // 15 Hz
+
+    /// Long-edge width the color frame is downscaled to before JPEG encoding.
+    ///
+    /// The capture format is 1920x1440 (picked in CameraManager for LiDAR depth
+    /// support), which at quality 0.55 produces ~500 KB of JPEG — ~680 KB once
+    /// base64'd into the rosbridge JSON, or ~11 MB/s at 15 Hz. That is far more
+    /// than WiFi carries, so frames back up and the rate collapses to 4-9 Hz.
+    ///
+    /// This stream is the online preview only; `LocalVideoRecorder` keeps the
+    /// full-resolution archival copy. 640 wide costs ~75 KB/frame (~1.1 MB/s at
+    /// 15 Hz) and comfortably out-resolves the 320x240 depth map.
+    ///
+    /// Set to 0 to publish at native capture resolution.
+    /// NOTE: downscaling scales the camera intrinsics by the same factor —
+    /// anything doing geometry with these images must account for it. The JPEG
+    /// header carries the true published dimensions.
+    @Published var publishMaxWidth: CGFloat = 640
+    @Published var jpegQuality: CGFloat = 0.55
+
     private static let ciContext = CIContext(options: nil)
-    
+
     func start() {
         isRunning = true
         connect()
     }
-    
+
     func stop() {
         isRunning = false
         isConnected = false
@@ -1106,11 +1159,13 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
         urlSession = nil
+        resetPublishGate()
     }
-    
+
     private func connect() {
         guard isRunning else { return }
         isConnected = false
+        resetPublishGate()
         let urlString = "ws://\(rosBridgeHost):\(rosBridgePort)"
         guard let url = URL(string: urlString) else { return }
         let config = URLSessionConfiguration.default
@@ -1120,7 +1175,7 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         webSocketTask?.resume()
         receiveLoop()
     }
-    
+
     private func advertiseTopics() {
         sendJson([
             "op": "advertise",
@@ -1138,9 +1193,16 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         guard isConnected else { return }
         let now = Date().timeIntervalSince1970
         guard now - lastImagePublishTs >= imagePublishInterval else { return }
+        guard tryBeginPublishingFrame() else {
+            noteDroppedFrame(now)
+            return
+        }
         lastImagePublishTs = now
         publishQueue.async { [weak self] in
             guard let self = self else { return }
+            // Releases the gate once every send this frame started has drained.
+            defer { self.markFrameEncodingDone() }
+            guard self.isRunning, self.isConnected else { return }
             self.publishColorImage(sampleBuffer: sampleBuffer, phoneTsUnix: now)
             if let depthData = depthData {
                 self.publishDepthImage(depthData: depthData, phoneTsUnix: now)
@@ -1148,12 +1210,95 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         }
     }
 
+    private func tryBeginPublishingFrame() -> Bool {
+        publishStateLock.lock()
+        defer { publishStateLock.unlock() }
+
+        guard !isPublishingFrame else { return false }
+        isPublishingFrame = true
+        frameEncodingDone = false
+        return true
+    }
+
+    /// Called before handing a frame payload to the websocket. Returns the
+    /// generation the send belongs to, to be passed back to `finishSend`.
+    private func beginSend() -> Int {
+        publishStateLock.lock()
+        defer { publishStateLock.unlock() }
+        pendingSends += 1
+        return publishGeneration
+    }
+
+    /// Called from the websocket send completion handler.
+    private func finishSend(generation: Int) {
+        publishStateLock.lock()
+        defer { publishStateLock.unlock() }
+        guard generation == publishGeneration else { return }
+        pendingSends = max(0, pendingSends - 1)
+        if frameEncodingDone && pendingSends == 0 {
+            isPublishingFrame = false
+        }
+    }
+
+    private func markFrameEncodingDone() {
+        publishStateLock.lock()
+        frameEncodingDone = true
+        if pendingSends == 0 {
+            isPublishingFrame = false
+        }
+        publishStateLock.unlock()
+    }
+
+    /// Clears the gate outright. Used when the socket goes away, so a send
+    /// whose completion never arrives cannot wedge publishing permanently.
+    private func resetPublishGate() {
+        publishStateLock.lock()
+        isPublishingFrame = false
+        frameEncodingDone = true
+        pendingSends = 0
+        publishGeneration &+= 1
+        publishStateLock.unlock()
+    }
+
+    private func noteDroppedFrame(_ now: TimeInterval) {
+        publishStateLock.lock()
+        droppedFrameCount += 1
+        let count = droppedFrameCount
+        let shouldLog = now - lastDropLogTs >= 5.0
+        if shouldLog {
+            lastDropLogTs = now
+            droppedFrameCount = 0
+        }
+        publishStateLock.unlock()
+
+        if shouldLog {
+            print("🖼️ ⚠️ dropped \(count) frame(s): websocket send still in flight")
+        }
+    }
+
     private func publishColorImage(sampleBuffer: CMSampleBuffer, phoneTsUnix: Double) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let cgImage = Self.ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
+        var ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+
+        // Downscale before encoding, not after: encoding 1920x1440 and then
+        // shrinking would burn the CPU we are trying to save.
+        let native = ciImage.extent
+        var renderRect = native
+        let maxWidth = publishMaxWidth
+        if maxWidth > 0 && native.width > maxWidth {
+            let scale = maxWidth / native.width
+            ciImage = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            // Render from an explicitly rounded rect: the scaled extent is
+            // usually fractional (1440 * 640/1920 = 479.999...), and letting
+            // CoreImage round it can yield an off-by-one image size.
+            renderRect = CGRect(x: 0, y: 0,
+                                width: (native.width * scale).rounded(),
+                                height: (native.height * scale).rounded())
+        }
+
+        guard let cgImage = Self.ciContext.createCGImage(ciImage, from: renderRect) else { return }
         let image = UIImage(cgImage: cgImage)
-        guard let jpegData = image.jpegData(compressionQuality: 0.55) else { return }
+        guard let jpegData = image.jpegData(compressionQuality: jpegQuality) else { return }
         let msg: [String: Any] = [
             "header": [
                 "stamp": makeRosStamp(fromUnix: phoneTsUnix),
@@ -1166,7 +1311,7 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
             "op": "publish",
             "topic": colorImageTopic,
             "msg": msg
-        ])
+        ], partOfFrame: true)
     }
 
     private func publishDepthImage(depthData: AVDepthData, phoneTsUnix: Double) {
@@ -1196,7 +1341,7 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
             "op": "publish",
             "topic": depthImageTopic,
             "msg": msg
-        ])
+        ], partOfFrame: true)
     }
 
     private func zlibCompress(_ input: Data) -> Data? {
@@ -1223,18 +1368,24 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         dst.removeSubrange(written..<dst.count)
         return dst
     }
-    
+
     private func makeRosStamp(fromUnix ts: Double) -> [String: Int] {
         let sec = Int(ts)
         let nsec = Int((ts - Double(sec)) * 1_000_000_000.0)
         return ["sec": sec, "nanosec": max(0, nsec)]
     }
-    
-    private func sendJson(_ obj: [String: Any]) {
+
+    /// - Parameter partOfFrame: when true the send is tracked by the
+    ///   backpressure gate, so the next camera frame is dropped rather than
+    ///   queued until this payload has actually reached the socket.
+    private func sendJson(_ obj: [String: Any], partOfFrame: Bool = false) {
         guard isConnected, let task = webSocketTask else { return }
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
               let text = String(data: data, encoding: .utf8) else { return }
-        task.send(.string(text)) { err in
+        let generation = partOfFrame ? beginSend() : 0
+        task.send(.string(text)) { [weak self] err in
+            guard let self = self else { return }
+            if partOfFrame { self.finishSend(generation: generation) }
             if let err = err {
                 print("❌ image send error: \(err)")
                 self.scheduleReconnect()
@@ -1255,7 +1406,7 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
             }
         }
     }
-    
+
     private func scheduleReconnect() {
         guard isRunning else { return }
         // Timer must be scheduled on the main run loop; this method is called
@@ -1267,6 +1418,7 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
             self.reconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
                 guard let self = self, self.isRunning else { return }
                 self.isConnected = false
+                self.resetPublishGate()
                 self.webSocketTask?.cancel(with: .goingAway, reason: nil)
                 self.webSocketTask = nil
                 self.urlSession?.invalidateAndCancel()
@@ -1290,7 +1442,7 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
 }
 
 final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketDelegate {
-    @Published var rosBridgeHost: String = "172.20.10.3"
+    @Published var rosBridgeHost: String = RosBridgeDefaults.savedOrCurrentHost()
     private let rosBridgePort: UInt16 = 9090
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
@@ -1300,12 +1452,12 @@ final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketD
     private let imuTopic = "/camera_person/imu"
     private let gpsFixTopic = "/camera_person/gps/fix"
     private let gpsVelTopic = "/camera_person/gps/vel"
-    
+
     func start() {
         isRunning = true
         connect()
     }
-    
+
     func stop() {
         isRunning = false
         isConnected = false
@@ -1316,7 +1468,7 @@ final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketD
         urlSession?.invalidateAndCancel()
         urlSession = nil
     }
-    
+
     private func connect() {
         guard isRunning else { return }
         isConnected = false
@@ -1329,7 +1481,7 @@ final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketD
         webSocketTask?.resume()
         receiveLoop()
     }
-    
+
     private func advertiseTopics() {
         sendJson([
             "op": "advertise",
@@ -1347,7 +1499,7 @@ final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketD
             "type": "geometry_msgs/msg/TwistStamped"
         ])
     }
-    
+
     func publishImu(phoneTsUnix: Double, ax: Double, ay: Double, az: Double, gx: Double, gy: Double, gz: Double) {
         guard isConnected else { return }
         let stamp = makeRosStamp(fromUnix: phoneTsUnix)
@@ -1369,7 +1521,7 @@ final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketD
             "msg": msg
         ])
     }
-    
+
     func publishGps(phoneTsUnix: Double, lat: Double, lon: Double, altM: Double,
                     speedMps: Double, headingDeg: Double,
                     hAccM: Double, vAccM: Double) {
@@ -1422,13 +1574,13 @@ final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketD
             ]
         ])
     }
-    
+
     private func makeRosStamp(fromUnix ts: Double) -> [String: Int] {
         let sec = Int(ts)
         let nsec = Int((ts - Double(sec)) * 1_000_000_000.0)
         return ["sec": sec, "nanosec": max(0, nsec)]
     }
-    
+
     private func sendJson(_ obj: [String: Any]) {
         guard isConnected, let task = webSocketTask else { return }
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
@@ -1440,7 +1592,7 @@ final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketD
             }
         }
     }
-    
+
     private func receiveLoop() {
         webSocketTask?.receive { [weak self] result in
             guard let self = self else { return }
@@ -1454,7 +1606,7 @@ final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketD
             }
         }
     }
-    
+
     private func scheduleReconnect() {
         guard isRunning else { return }
         // Timer must be scheduled on the main run loop; this method is called
@@ -1500,18 +1652,18 @@ private extension DateFormatter {
 struct SensorDataPanel: View {
     @ObservedObject var sensorManager: SensorDataManager
     let closeAction: () -> Void
-    
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 Color(red: 0.035, green: 0.047, blue: 0.063)
                     .ignoresSafeArea(.all)
-                
+
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 12) {
                         header
                             .padding(.top, geometry.safeAreaInsets.top + 6)
-                        
+
                         sensorSection(
                             title: "IMU",
                             icon: "gyroscope",
@@ -1527,7 +1679,7 @@ struct SensorDataPanel: View {
                                 sensorRow("Yaw", degrees(sensorManager.attitude.z), "deg")
                             ]
                         )
-                        
+
                         sensorSection(
                             title: "GPS",
                             icon: "location.fill",
@@ -1540,7 +1692,7 @@ struct SensorDataPanel: View {
                                 sensorRow("Timestamp", timestamp(sensorManager.locationTimestamp), "")
                             ]
                         )
-                        
+
                         sensorSection(
                             title: "GNSS",
                             icon: "antenna.radiowaves.left.and.right",
@@ -1553,7 +1705,7 @@ struct SensorDataPanel: View {
                                 sensorRow("Accessory Source", boolean(sensorManager.isProducedByAccessory), "")
                             ]
                         )
-                        
+
                         sensorSection(
                             title: "GPS Motion",
                             icon: "speedometer",
@@ -1566,7 +1718,7 @@ struct SensorDataPanel: View {
                                 sensorRow("Vertical Speed", optional(sensorManager.verticalSpeed), "m/s")
                             ]
                         )
-                        
+
                         Color.clear.frame(height: geometry.safeAreaInsets.bottom + 92)
                     }
                     .padding(.horizontal, 20)
@@ -1579,7 +1731,7 @@ struct SensorDataPanel: View {
             .ignoresSafeArea(.all)
         }
     }
-    
+
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
@@ -1590,11 +1742,11 @@ struct SensorDataPanel: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white.opacity(0.55))
             }
-            
+
             Spacer()
         }
     }
-    
+
     private func sensorSection(title: String, icon: String, rows: [SensorDisplayRow]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
@@ -1608,7 +1760,7 @@ struct SensorDataPanel: View {
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(.white.opacity(0.92))
             }
-            
+
             VStack(spacing: 8) {
                 ForEach(rows) { row in
                     HStack(alignment: .firstTextBaseline) {
@@ -1649,44 +1801,44 @@ struct SensorDataPanel: View {
                 .stroke(Color.white.opacity(0.09), lineWidth: 1)
         )
     }
-    
+
     private func sensorRow(_ label: String, _ value: String, _ unit: String) -> SensorDisplayRow {
         SensorDisplayRow(label: label, value: value, unit: unit)
     }
-    
+
     private func format(_ value: Double) -> String {
         String(format: "%.3f", value)
     }
-    
+
     private func optional(_ value: Double?) -> String {
         guard let value else { return "--" }
         return String(format: "%.3f", value)
     }
-    
+
     private func coordinate(_ value: Double?) -> String {
         guard let value else { return "--" }
         return String(format: "%.7f", value)
     }
-    
+
     private func degrees(_ radians: Double) -> String {
         String(format: "%.2f", radians * 180 / .pi)
     }
-    
+
     private func speedKmh(_ value: Double?) -> String {
         guard let value else { return "--" }
         return String(format: "%.2f", value * 3.6)
     }
-    
+
     private func timestamp(_ date: Date?) -> String {
         guard let date else { return "--" }
         return date.formatted(date: .omitted, time: .standard)
     }
-    
+
     private func boolean(_ value: Bool?) -> String {
         guard let value else { return "--" }
         return value ? "Yes" : "No"
     }
-    
+
     private func authorization(_ status: CLAuthorizationStatus) -> String {
         switch status {
         case .notDetermined:
@@ -1715,17 +1867,17 @@ struct SensorDisplayRow: Identifiable {
 // MARK: - Camera Preview
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
-    
+
     func makeUIView(context: Context) -> PreviewUIView {
         let view = PreviewUIView()
         view.backgroundColor = .clear
-        
+
         let previewLayer = AVCaptureVideoPreviewLayer(session: session)
         previewLayer.videoGravity = .resizeAspectFill
-        
+
         view.layer.addSublayer(previewLayer)
         view.previewLayer = previewLayer
-        
+
         // Set video orientation after adding layer (connection becomes available)
         DispatchQueue.main.async {
             if let connection = previewLayer.connection {
@@ -1738,16 +1890,16 @@ struct CameraPreview: UIViewRepresentable {
                 }
             }
         }
-        
+
         return view
     }
-    
+
     func updateUIView(_ uiView: PreviewUIView, context: Context) {
     }
-    
+
     class PreviewUIView: UIView {
         var previewLayer: AVCaptureVideoPreviewLayer?
-        
+
         override func layoutSubviews() {
             super.layoutSubviews()
             previewLayer?.frame = bounds

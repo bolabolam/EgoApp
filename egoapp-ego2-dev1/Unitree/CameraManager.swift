@@ -12,17 +12,17 @@ class CameraManager: NSObject, ObservableObject {
     @Published var isSessionRunning = false
     @Published var authorizationStatus: AVAuthorizationStatus = .notDetermined
     @Published var error: String?
-    
+
     // Expose captureSession for preview
     let captureSession = AVCaptureSession()
     private var videoOutput: AVCaptureVideoDataOutput?
     private var depthOutput: AVCaptureDepthDataOutput?
     private let sessionQueue = DispatchQueue(label: "camera.session.queue")
     private var outputSynchronizer: AVCaptureDataOutputSynchronizer?
-    
+
     // Video streaming delegate
     weak var streamDelegate: VideoStreamDelegate?
-    
+
     // Point cloud delegate
     weak var pointCloudDelegate: PointCloudDelegate?
 
@@ -31,19 +31,19 @@ class CameraManager: NSObject, ObservableObject {
 
     // Local recorder delegate: receives full-resolution frames for archival mp4
     weak var localVideoDelegate: LocalVideoFrameDelegate?
-    
+
     private var isCameraSetup = false
-    
+
     // 视频输出连接，用于动态调整方向
     private var videoConnection: AVCaptureConnection?
-    
+
     override init() {
         super.init()
         // Initialize authorization status asynchronously to avoid blocking
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.checkAuthorization()
         }
-        
+
         // 禁用自动方向调整，保持固定的1280x720分辨率
         // 注释掉方向监听以保持固定分辨率
         /*
@@ -54,39 +54,39 @@ class CameraManager: NSObject, ObservableObject {
             name: UIDevice.orientationDidChangeNotification,
             object: nil
         )
-        
+
         // 开始设备方向监测
         UIDevice.current.beginGeneratingDeviceOrientationNotifications()
         */
     }
-    
+
     deinit {
         // 清理资源（方向监听已禁用）
         // NotificationCenter.default.removeObserver(self)
         // UIDevice.current.endGeneratingDeviceOrientationNotifications()
     }
-    
+
     @objc private func deviceOrientationDidChange() {
         updateVideoOrientation()
     }
-    
+
     private func updateVideoOrientation() {
         sessionQueue.async { [weak self] in
             guard let self = self, let connection = self.videoConnection else {
                 return
             }
-            
+
             let deviceOrientation = UIDevice.current.orientation
-            
+
             // 忽略无效的方向
-            guard deviceOrientation != .unknown && 
-                  deviceOrientation != .faceUp && 
+            guard deviceOrientation != .unknown &&
+                  deviceOrientation != .faceUp &&
                   deviceOrientation != .faceDown else {
                 return
             }
-            
+
             let videoRotationAngle: CGFloat
-            
+
             switch deviceOrientation {
             case .portrait:
                 videoRotationAngle = 90
@@ -99,12 +99,12 @@ class CameraManager: NSObject, ObservableObject {
             default:
                 return
             }
-            
+
             if #available(iOS 17.0, *) {
                 if connection.isVideoRotationAngleSupported(videoRotationAngle) {
                     connection.videoRotationAngle = videoRotationAngle
                     print("📱 Video orientation updated to \(videoRotationAngle)° for device orientation: \(deviceOrientation.rawValue)")
-                    
+
                     // 通知流服务器需要重新配置编码器
                     self.streamDelegate?.videoOrientationDidChange()
                 }
@@ -123,24 +123,24 @@ class CameraManager: NSObject, ObservableObject {
                 default:
                     return
                 }
-                
+
                 if connection.isVideoOrientationSupported {
                     connection.videoOrientation = videoOrientation
                     print("📱 Video orientation updated to \(videoOrientation.rawValue) for device orientation: \(deviceOrientation.rawValue)")
-                    
+
                     // 通知流服务器需要重新配置编码器
                     self.streamDelegate?.videoOrientationDidChange()
                 }
             }
         }
     }
-    
+
     func checkAuthorization() {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
-        
+
         DispatchQueue.main.async { [weak self] in
             self?.authorizationStatus = status
-            
+
             switch status {
             case .authorized:
                 // Don't setup camera here, wait for explicit start
@@ -155,7 +155,7 @@ class CameraManager: NSObject, ObservableObject {
             }
         }
     }
-    
+
     private func requestAuthorization() {
         print("📱 Requesting camera access...")
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
@@ -171,23 +171,23 @@ class CameraManager: NSObject, ObservableObject {
             }
         }
     }
-    
+
     // Synchronous setup (must be called on sessionQueue)
     // Returns true if setup succeeded, false otherwise
     private func setupCameraSync() -> Bool {
         print("📸 Setting up camera...")
         print("🆕 CODE VERSION: 2.0 - DEPTH SUPPORT ENABLED 🆕")
-        
+
         captureSession.beginConfiguration()
         defer {
             captureSession.commitConfiguration()
         }
-        
+
         // Don't set preset yet, we'll configure format manually for depth support
-        
+
         // Try to get device with depth capability first
         print("📊 ========== Searching for Camera Devices ==========")
-        
+
         // List all available devices
         let discoverySession = AVCaptureDevice.DiscoverySession(
             deviceTypes: [
@@ -201,7 +201,7 @@ class CameraManager: NSObject, ObservableObject {
             mediaType: .video,
             position: .back
         )
-        
+
         print("📊 Found \(discoverySession.devices.count) camera devices:")
         for (index, device) in discoverySession.devices.enumerated() {
             print("📊   Device \(index): \(device.localizedName)")
@@ -210,10 +210,10 @@ class CameraManager: NSObject, ObservableObject {
             print("📊     Formats: \(device.formats.count)")
             print("📊     Has depth: \(device.activeFormat.supportedDepthDataFormats.count > 0)")
         }
-        
+
         // Try to select the best camera for depth
         var videoDevice: AVCaptureDevice?
-        
+
         // Priority 1: LiDAR depth camera
         if let lidarDevice = AVCaptureDevice.default(.builtInLiDARDepthCamera, for: .video, position: .back) {
             videoDevice = lidarDevice
@@ -239,7 +239,7 @@ class CameraManager: NSObject, ObservableObject {
             videoDevice = wideAngle
             print("⚠️ Selected wide angle camera (may not support depth)")
         }
-        
+
         guard let selectedDevice = videoDevice else {
             print("❌ Cannot access any rear camera")
             DispatchQueue.main.async {
@@ -247,13 +247,13 @@ class CameraManager: NSObject, ObservableObject {
             }
             return false
         }
-        
+
         print("✅ Got camera device: \(selectedDevice.localizedName)")
         print("📊 Device model: \(selectedDevice.modelID)")
         print("📊 Device type: \(selectedDevice.deviceType.rawValue)")
         print("📊 Device has depth in active format: \(selectedDevice.activeFormat.supportedDepthDataFormats.count > 0)")
         print("📊 ================================================")
-        
+
         // Add video input first
         do {
             let videoInput = try AVCaptureDeviceInput(device: selectedDevice)
@@ -274,16 +274,16 @@ class CameraManager: NSObject, ObservableObject {
             }
             return false
         }
-        
+
         // Now try to find a format that supports depth data
         var selectedFormat: AVCaptureDevice.Format?
         var hasDepthSupport = false
-        
+
         print("📊 ========== Scanning Available Formats ==========")
         print("📊 Total formats available: \(selectedDevice.formats.count)")
-        
+
         var depthFormatsCount = 0
-        
+
         // Print first 10 formats in detail for debugging
         print("📊 Detailed format information (first 10):")
         for (index, format) in selectedDevice.formats.prefix(10).enumerated() {
@@ -292,22 +292,22 @@ class CameraManager: NSObject, ObservableObject {
             let mediaType = format.formatDescription.mediaSubType
             print("📊   Format \(index): \(dimensions.width)x\(dimensions.height), mediaType: \(mediaType), depth formats: \(depthFormats.count)")
         }
-        
+
         for (index, format) in selectedDevice.formats.enumerated() {
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             let supportsDepth = format.supportedDepthDataFormats.count > 0
-            
+
             if supportsDepth {
                 depthFormatsCount += 1
                 print("📊 Format \(index): \(dimensions.width)x\(dimensions.height) - ✅ DEPTH SUPPORTED (\(format.supportedDepthDataFormats.count) depth formats)")
-                
+
                 // Print depth format details
                 for (depthIdx, depthFormat) in format.supportedDepthDataFormats.enumerated() {
                     let depthDims = CMVideoFormatDescriptionGetDimensions(depthFormat.formatDescription)
                     print("📊     Depth format \(depthIdx): \(depthDims.width)x\(depthDims.height)")
                 }
             }
-            
+
             // Look for formats that support depth
             // Prefer 1920x1440 for iPhone 12 Pro Max LiDAR
             if supportsDepth {
@@ -323,10 +323,10 @@ class CameraManager: NSObject, ObservableObject {
                 }
             }
         }
-        
+
         print("📊 Found \(depthFormatsCount) formats with depth support")
         print("📊 ================================================")
-        
+
         // Configure the selected format
         if let format = selectedFormat {
             do {
@@ -342,11 +342,11 @@ class CameraManager: NSObject, ObservableObject {
         } else {
             print("⚠️ No depth-capable formats found")
         }
-        
+
         // Add video output
         let videoOutput = AVCaptureVideoDataOutput()
         videoOutput.alwaysDiscardsLateVideoFrames = true
-        
+
         // If we have depth support, use native resolution; otherwise use fixed 1280x720
         if hasDepthSupport {
             // Use native format resolution to maintain depth synchronization
@@ -363,7 +363,7 @@ class CameraManager: NSObject, ObservableObject {
             ]
             print("📊 Using fixed 1280x720 resolution (no depth)")
         }
-        
+
         if captureSession.canAddOutput(videoOutput) {
             captureSession.addOutput(videoOutput)
             self.videoOutput = videoOutput
@@ -375,15 +375,15 @@ class CameraManager: NSObject, ObservableObject {
             }
             return false
         }
-        
+
         // Try to add depth data output if available
         if selectedDevice.activeFormat.supportedDepthDataFormats.count > 0 {
             print("📊 Device supports depth data, configuring...")
-            
+
             // Find a depth format that matches video dimensions
             let depthFormats = selectedDevice.activeFormat.supportedDepthDataFormats
             let selectedDepthFormat = depthFormats.last
-            
+
             do {
                 try selectedDevice.lockForConfiguration()
                 selectedDevice.activeDepthDataFormat = selectedDepthFormat
@@ -396,16 +396,16 @@ class CameraManager: NSObject, ObservableObject {
             } catch {
                 print("⚠️ Could not set depth format: \(error)")
             }
-            
+
             // Add depth output
             let depthOutput = AVCaptureDepthDataOutput()
             depthOutput.isFilteringEnabled = true
-            
+
             if captureSession.canAddOutput(depthOutput) {
                 captureSession.addOutput(depthOutput)
                 self.depthOutput = depthOutput
                 print("✅ Added depth output")
-                
+
                 // Setup output synchronizer for video and depth
                 let outputQueue = DispatchQueue(label: "camera.output.queue", qos: .userInitiated)
                 let synchronizer = AVCaptureDataOutputSynchronizer(dataOutputs: [videoOutput, depthOutput])
@@ -426,11 +426,11 @@ class CameraManager: NSObject, ObservableObject {
             videoOutput.setSampleBufferDelegate(self, queue: outputQueue)
             print("✅ Video output delegate configured (no depth)")
         }
-        
+
         // 获取视频输出连接并设置固定方向为横屏（保持1280x720）
         if let connection = videoOutput.connection(with: .video) {
             self.videoConnection = connection
-            
+
             // 固定为横屏方向，确保输出始终是1280x720
             if #available(iOS 17.0, *) {
                 // 设置为0度（横屏右）
@@ -446,26 +446,26 @@ class CameraManager: NSObject, ObservableObject {
         } else {
             print("⚠️ Could not get video connection")
         }
-        
+
         print("✅ Camera setup complete")
-        
+
         DispatchQueue.main.async {
             self.error = nil
         }
-        
+
         return true
     }
-    
+
     func startSession() {
         print("🎬 ========================================")
         print("🎬 startSession() called")
         print("📋 Current isSessionRunning: \(isSessionRunning)")
         print("📋 Current captureSession.isRunning: \(captureSession.isRunning)")
-        
+
         // Check and request permission if needed
         let currentStatus = AVCaptureDevice.authorizationStatus(for: .video)
         print("📋 Authorization status: \(currentStatus.rawValue) (0=notDetermined, 3=authorized)")
-        
+
         if currentStatus == .notDetermined {
             print("⚠️ Requesting camera permission...")
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
@@ -487,7 +487,7 @@ class CameraManager: NSObject, ObservableObject {
             }
             return
         }
-        
+
         if currentStatus != .authorized {
             print("❌ Camera not authorized: \(currentStatus.rawValue)")
             DispatchQueue.main.async {
@@ -495,23 +495,23 @@ class CameraManager: NSObject, ObservableObject {
             }
             return
         }
-        
+
         print("✅ Camera authorized, starting session...")
-        
+
         sessionQueue.async { [weak self] in
             print("🔧 [SessionQueue] Starting async work...")
             guard let self = self else {
                 print("❌ [SessionQueue] Self is nil, aborting")
                 return
             }
-            
+
             print("🔧 [SessionQueue] isCameraSetup = \(self.isCameraSetup)")
-            
+
             // Setup camera if not already done
             if !self.isCameraSetup {
                 print("📸 [SessionQueue] Setting up camera for the first time...")
                 let setupSuccess = self.setupCameraSync()
-                
+
                 if !setupSuccess {
                     print("❌ [SessionQueue] Camera setup failed, aborting start")
                     DispatchQueue.main.async {
@@ -519,31 +519,31 @@ class CameraManager: NSObject, ObservableObject {
                     }
                     return
                 }
-                
+
                 self.isCameraSetup = true
                 print("✅ [SessionQueue] Camera setup marked as complete")
-                
+
                 // Give a small delay after setup before starting
                 Thread.sleep(forTimeInterval: 0.1)
             } else {
                 print("ℹ️ [SessionQueue] Camera already set up, skipping setup")
             }
-            
+
             print("🔧 [SessionQueue] About to check captureSession.isRunning...")
             print("🔧 [SessionQueue] captureSession.isRunning = \(self.captureSession.isRunning)")
-            
+
             // Now start the session
             if !self.captureSession.isRunning {
                 print("▶️ [SessionQueue] Starting capture session...")
                 print("▶️ [SessionQueue] Calling captureSession.startRunning()...")
                 self.captureSession.startRunning()
                 print("▶️ [SessionQueue] captureSession.startRunning() returned")
-                
+
                 // Wait for session to fully start and verify multiple times
                 var attempts = 0
                 let maxAttempts = 10
                 var sessionStarted = false
-                
+
                 print("🔍 [SessionQueue] Starting verification loop...")
                 while attempts < maxAttempts && !sessionStarted {
                     Thread.sleep(forTimeInterval: 0.1)
@@ -551,7 +551,7 @@ class CameraManager: NSObject, ObservableObject {
                     sessionStarted = self.captureSession.isRunning
                     print("📊 [SessionQueue] Attempt \(attempts)/\(maxAttempts): isRunning = \(sessionStarted)")
                 }
-                
+
                 // Verify session is actually running
                 if self.captureSession.isRunning {
                     print("✅✅✅ [SessionQueue] Camera session STARTED successfully after \(attempts) attempts")
@@ -576,25 +576,25 @@ class CameraManager: NSObject, ObservableObject {
                     self.isSessionRunning = true
                 }
             }
-            
+
             print("🔧 [SessionQueue] Async work complete")
         }
     }
-    
+
     func stopSession() {
         print("🛑 Stopping camera session...")
-        
+
         // Update UI immediately to provide responsive feedback
         DispatchQueue.main.async { [weak self] in
             self?.isSessionRunning = false
         }
-        
+
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
-            
+
             // Clear video connection reference first
             self.videoConnection = nil
-            
+
             if self.captureSession.isRunning {
                 self.captureSession.stopRunning()
                 print("✅ Camera session stopped")
@@ -617,26 +617,33 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
 
 // MARK: - AVCaptureDataOutputSynchronizerDelegate
 extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
-    func dataOutputSynchronizer(_ synchronizer: AVCaptureDataOutputSynchronizer, 
+    func dataOutputSynchronizer(_ synchronizer: AVCaptureDataOutputSynchronizer,
                                 didOutput synchronizedDataCollection: AVCaptureSynchronizedDataCollection) {
-        // Get synchronized video and depth data
-        guard let syncedVideoData = synchronizedDataCollection.synchronizedData(for: videoOutput!) as? AVCaptureSynchronizedSampleBufferData else {
+        guard let videoOutput = videoOutput else {
             return
         }
-        
+
+        // Get synchronized video and depth data
+        guard let syncedVideoData = synchronizedDataCollection.synchronizedData(for: videoOutput) as? AVCaptureSynchronizedSampleBufferData,
+              !syncedVideoData.sampleBufferWasDropped else {
+            return
+        }
+
         // sampleBuffer is not optional, so access it directly
         let videoSampleBuffer = syncedVideoData.sampleBuffer
-        
+
         var depthData: AVDepthData? = nil
-        if let syncedDepthData = synchronizedDataCollection.synchronizedData(for: depthOutput!) as? AVCaptureSynchronizedDepthData {
+        if let depthOutput = depthOutput,
+           let syncedDepthData = synchronizedDataCollection.synchronizedData(for: depthOutput) as? AVCaptureSynchronizedDepthData,
+           !syncedDepthData.depthDataWasDropped {
             depthData = syncedDepthData.depthData
         }
-        
+
         // Pass video data to video stream server
         streamDelegate?.didCaptureVideoFrame(videoSampleBuffer, depthData: depthData)
         rosFrameDelegate?.didCaptureFrame(videoSampleBuffer, depthData: depthData)
         localVideoDelegate?.recordVideoFrame(videoSampleBuffer)
-        
+
         // Pass depth data to point cloud server
         if let depthData = depthData {
             pointCloudDelegate?.didCaptureDepthData(depthData)
