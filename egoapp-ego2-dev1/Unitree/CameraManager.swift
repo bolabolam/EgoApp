@@ -343,6 +343,25 @@ class CameraManager: NSObject, ObservableObject {
             do {
                 try selectedDevice.lockForConfiguration()
                 selectedDevice.activeFormat = format
+                // Setting activeFormat resets the frame durations, so pin them
+                // afterwards. 30 fps, not the format's 60: the depth sensor
+                // tops out at 30, so at 60 exactly half the colour frames are
+                // born without a depth partner -- 1228 against 626 in
+                // dataset_session_20260829_115927, a 1.95:1 ratio that reads
+                // like loss and is not. At 30 they pair one to one. Nothing
+                // downstream wants the extra frames either: publishing is
+                // throttled to 15 Hz and the archival recorder does not ask
+                // for 60.
+                let thirty = CMTime(value: 1, timescale: 30)
+                if format.videoSupportedFrameRateRanges.contains(where: {
+                    $0.minFrameRate <= 30 && $0.maxFrameRate >= 30
+                }) {
+                    selectedDevice.activeVideoMinFrameDuration = thirty
+                    selectedDevice.activeVideoMaxFrameDuration = thirty
+                    print("✅ Pinned video to 30 fps to pair 1:1 with depth")
+                } else {
+                    print("⚠️ Format does not support 30 fps, leaving frame duration alone")
+                }
                 let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
                 print("✅ Set active format to: \(dimensions.width)x\(dimensions.height) with depth support")
                 selectedDevice.unlockForConfiguration()

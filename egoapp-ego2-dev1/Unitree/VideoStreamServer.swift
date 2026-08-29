@@ -594,6 +594,13 @@ extension VideoStreamServer {
 // MARK: - VideoStreamDelegate
 extension VideoStreamServer: VideoStreamDelegate {
     func didCaptureVideoFrame(_ sampleBuffer: CMSampleBuffer, depthData: AVDepthData?) {
+        // Nothing in the dataset pipeline consumes this stream -- it reaches
+        // the bag through rosbridge, not through port 5000 -- so in practice
+        // no one ever connects. dataset_session_20260829_130658 was recorded
+        // with "clients: 0" on every encode line for four minutes, H.264ing
+        // 1920x1440 for an empty room. That is CPU and battery spent competing
+        // with the websocket sends that were timing out.
+        guard connectedClients > 0 else { return }
         guard isRunning else {
             // Log occasionally when frames are being dropped because we're not running
             if Int.random(in: 0..<100) == 0 {

@@ -634,7 +634,11 @@ struct ContentView: View {
 
     // MARK: - Actions
 
-    private func handleStartStop() {
+    /// - Parameter sessionName: the recorder's session id when this came from a
+    ///   sync event, so the phone's folder matches the bag's. Nil when the
+    ///   button was tapped here, which is also the case worth avoiding: start
+    ///   from the recorder and both sides begin at one instant under one name.
+    private func handleStartStop(sessionName: String? = nil) {
         print("🔘 ========== BUTTON TAPPED ==========")
         print("🔘 Current state: \(cameraManager.isSessionRunning)")
 
@@ -655,7 +659,7 @@ struct ContentView: View {
         } else {
             print("🔘 >>> STARTING camera, video server, and ROS2 client")
             frameIdx = 0
-            sessionLogger.startNewSession()
+            sessionLogger.startNewSession(named: sessionName)
             if let dir = sessionLogger.sessionDirectory {
                 videoRecorder.start(in: dir)
             }
@@ -710,7 +714,7 @@ struct ContentView: View {
     private func handleSyncEvent(_ event: SyncEvent) {
         sessionLogger.logSyncEvent(seq: event.seq, event: event.event, robotTsIso: event.robotTsIso)
         if event.event == "start_recording" && !cameraManager.isSessionRunning {
-            handleStartStop()
+            handleStartStop(sessionName: event.session)
         } else if event.event == "stop_recording" && cameraManager.isSessionRunning {
             handleStartStop()
         }
@@ -727,13 +731,14 @@ final class SessionLogger: ObservableObject {
     // preserving write order.
     private let ioQueue = DispatchQueue(label: "session.logger.io")
 
-    func startNewSession() {
+    func startNewSession(named: String? = nil) {
         let ts = DateFormatter.sessionFormatter.string(from: Date())
         guard let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first else {
             print("❌ Session logger init failed: documents directory unavailable")
             return
         }
-        let dir = docs.appendingPathComponent("dataset_session_\(ts)", isDirectory: true)
+        let folder = named ?? "dataset_session_\(ts)"
+        let dir = docs.appendingPathComponent(folder, isDirectory: true)
         do {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
             sessionDir = dir
@@ -956,6 +961,12 @@ struct SyncEvent {
     let seq: Int
     let event: String
     let robotTsIso: String
+    /// The recorder's own session id, so both sides name the same run the same
+    /// thing. Without it the phone stamps its folder from its own clock and the
+    /// pair has to be matched by guessing: 20260829 produced
+    /// dataset_session_20260829_130646 on the phone against
+    /// dataset_session_20260829_130658 in the bag, twelve seconds apart.
+    let session: String?
 }
 
 final class SyncEventClient: ObservableObject {
@@ -1093,8 +1104,10 @@ final class SyncEventClient: ObservableObject {
         guard let seq = inner["seq"] as? Int,
               let event = inner["event"] as? String,
               let ts = inner["timestamp_local"] as? String else { return }
+        let session = inner["session"] as? String
         DispatchQueue.main.async {
-            self.callback?(SyncEvent(seq: seq, event: event, robotTsIso: ts))
+            self.callback?(SyncEvent(seq: seq, event: event, robotTsIso: ts,
+                                     session: session))
         }
     }
 }
@@ -1138,6 +1151,20 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
     /// is what jetsam measures, so it is what this prints.
     private var lastFootprintLogTs: TimeInterval = 0
     private var peakPendingSends = 0
+    /// When the current gated frame claimed the gate, and how long it may hold
+    /// it before being written off.
+    ///
+    /// The gate has three ways out and all of them need something to arrive:
+    /// finishSend needs URLSession's completion, markFrameEncodingDone needs
+    /// pendingSends to reach zero, resetPublishGate needs a reconnect. A send
+    /// whose completion never comes therefore closes the gate until URLSession
+    /// gives up on its own. dataset_session_20260829_130658 shows what that
+    /// costs: colour stopped for 19.5 s at t=170 and points for 21.3 s, while
+    /// frame_meta -- published on a different socket with no gate -- did not
+    /// miss a single one of its 1287 messages. Nothing was wrong with the
+    /// network; this gate was shut.
+    private var publishGateClaimedTs: TimeInterval = 0
+    private let publishGateDeadline: TimeInterval = 2.0
     private let imagePublishInterval: TimeInterval = 1.0 / 15.0 // 15 Hz
 
     /// Long-edge width the color frame is downscaled to before JPEG encoding.
@@ -1261,9 +1288,19 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         publishStateLock.lock()
         defer { publishStateLock.unlock() }
 
-        guard !isPublishingFrame else { return false }
+        let now = Date().timeIntervalSince1970
+        if isPublishingFrame {
+            guard now - publishGateClaimedTs >= publishGateDeadline else { return false }
+            // Bump the generation first: the completions this frame is still
+            // owed must not decrement the counter belonging to its successor.
+            publishGeneration &+= 1
+            pendingSends = 0
+            print(String(format: "🖼️ ⚠️ publish gate held %.1f s, forcing it open",
+                         now - publishGateClaimedTs))
+        }
         isPublishingFrame = true
         frameEncodingDone = false
+        publishGateClaimedTs = now
         return true
     }
 
