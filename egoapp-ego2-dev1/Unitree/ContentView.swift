@@ -1275,7 +1275,16 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         guard isConnected else { return }
         let now = Date().timeIntervalSince1970
         logFootprintIfDue(now)
-        guard now - lastImagePublishTs >= imagePublishInterval else { return }
+        // Nine tenths of the interval, not all of it. Capture runs at 30 fps,
+        // so eligibility is only ever tested at multiples of 33.3 ms, and the
+        // frame that lands on 100.0 ms needs only a hair of jitter to read as
+        // 99.x and be turned away -- after which the next candidate is 133.3 ms
+        // out. The whole stream then settles on every fourth frame instead of
+        // every third: dataset_session_20260829_160234 asked for 10 Hz and
+        // held a 130 ms median, 7.7 Hz, with the cadence otherwise spotless.
+        // The tolerance is smaller than a frame period, so it cannot let two
+        // frames through where one was wanted.
+        guard now - lastImagePublishTs >= imagePublishInterval * 0.9 else { return }
         guard tryBeginPublishingFrame() else {
             noteDroppedFrame(now)
             return
