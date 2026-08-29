@@ -1165,7 +1165,16 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
     /// network; this gate was shut.
     private var publishGateClaimedTs: TimeInterval = 0
     private let publishGateDeadline: TimeInterval = 2.0
-    private let imagePublishInterval: TimeInterval = 1.0 / 15.0 // 15 Hz
+    /// 10 Hz, to match the lidar on the robot rather than to chase a number
+    /// the link cannot hold.
+    ///
+    /// At 15 the median interval that actually arrived was 97 ms -- 10.3 Hz --
+    /// so the target was unreachable and the gate spent the session thrashing:
+    /// dataset_session_20260829_134921 delivered 2331 colour frames against
+    /// 3796 asked for, 61 %, in 74 separate holes. Asking for what the link
+    /// sustains trades a high ragged rate for a lower even one, and an even
+    /// one is what pairs against a 10 Hz sweep.
+    private let imagePublishInterval: TimeInterval = 1.0 / 10.0 // 10 Hz
 
     /// Long-edge width the color frame is downscaled to before JPEG encoding.
     ///
@@ -1407,10 +1416,36 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         let width = CVPixelBufferGetWidth(depthMap)
         let height = CVPixelBufferGetHeight(depthMap)
         let bytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
-        var depthBytes = Data(capacity: width * height * 4)
-        for y in 0..<height {
-            let row = baseAddress.advanced(by: y * bytesPerRow)
-            depthBytes.append(row.assumingMemoryBound(to: UInt8.self), count: width * 4)
+
+        // 16-bit millimetres, not 32-bit metres. Half the bytes before
+        // compression, and integers whose neighbours differ by small amounts
+        // compress far better than float mantissas whose low bits are noise:
+        // the float payload measured 87.4 KB a frame, larger than the colour
+        // JPEG beside it at 53.5 KB despite covering a quarter of the pixels.
+        //
+        // This is also the convention ROS uses for depth, and what the
+        // pipeline wanted all along -- sync_writer.py ran every 32FC1 frame
+        // through depth * 1000 clipped to [0, 65535] to get here, so the
+        // conversion moves to the side that has the pixels rather than the
+        // side that has to decompress them first. Its 16uc1 branch already
+        // exists.
+        //
+        // Zero means no reading, matching that same convention: NaN, infinity
+        // and anything non-positive land there.
+        var depthBytes = Data(count: width * height * 2)
+        depthBytes.withUnsafeMutableBytes { rawOut in
+            guard let out = rawOut.bindMemory(to: UInt16.self).baseAddress else { return }
+            for y in 0..<height {
+                let src = baseAddress.advanced(by: y * bytesPerRow)
+                                     .assumingMemoryBound(to: Float32.self)
+                let dst = out.advanced(by: y * width)
+                for x in 0..<width {
+                    let metres = src[x]
+                    dst[x] = (metres.isFinite && metres > 0)
+                        ? UInt16(min(metres * 1000.0, 65535.0))
+                        : 0
+                }
+            }
         }
         guard let compressedDepth = zlibCompress(depthBytes) else { return }
         let msg: [String: Any] = [
@@ -1418,7 +1453,7 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
                 "stamp": makeRosStamp(fromUnix: phoneTsUnix),
                 "frame_id": "person_camera_depth_optical_frame"
             ],
-            "format": "32FC1;zlib;w=\(width);h=\(height);step=\(width * 4)",
+            "format": "16UC1;zlib;w=\(width);h=\(height);step=\(width * 2)",
             "data": compressedDepth.base64EncodedString()
         ]
         sendJson([
