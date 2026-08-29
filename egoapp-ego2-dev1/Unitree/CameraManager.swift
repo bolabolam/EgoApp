@@ -33,6 +33,9 @@ class CameraManager: NSObject, ObservableObject {
     // Local recorder delegate: receives full-resolution frames for archival mp4
     weak var localVideoDelegate: LocalVideoFrameDelegate?
 
+    // Depth to disk, on the same footing as the video
+    weak var localDepthDelegate: LocalDepthFrameDelegate?
+
     private var isCameraSetup = false
 
     // Depth delivery accounting. /camera_person/depth/image_raw/compressed
@@ -789,6 +792,10 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
         streamDelegate?.didCaptureVideoFrame(videoSampleBuffer, depthData: depthData)
         rosFrameDelegate?.didCaptureFrame(videoSampleBuffer, depthData: depthData)
         localVideoDelegate?.recordVideoFrame(videoSampleBuffer)
+        if let depthData = depthData {
+            localDepthDelegate?.recordDepthFrame(depthData,
+                                                 phoneTsUnix: Date().timeIntervalSince1970)
+        }
 
         // Pass depth data to point cloud server
         if let depthData = depthData {
@@ -821,6 +828,12 @@ protocol RosFrameDelegate: AnyObject {
 }
 
 // MARK: - Local Video Recording Delegate Protocol
+protocol LocalDepthFrameDelegate: AnyObject {
+    /// Called on the camera output queue with each depth frame the sensor
+    /// produced, whatever the network is doing.
+    func recordDepthFrame(_ depthData: AVDepthData, phoneTsUnix: Double)
+}
+
 protocol LocalVideoFrameDelegate: AnyObject {
     /// Called on the camera output queue with each full-resolution video frame.
     func recordVideoFrame(_ sampleBuffer: CMSampleBuffer)

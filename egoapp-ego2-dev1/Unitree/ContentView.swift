@@ -29,6 +29,7 @@ struct ContentView: View {
     @FocusState private var isIPFieldFocused: Bool
     @StateObject private var sessionLogger = SessionLogger()
     @StateObject private var videoRecorder = LocalVideoRecorder()
+    @StateObject private var depthRecorder = LocalDepthRecorder()
     @StateObject private var syncClient = SyncEventClient()
     @StateObject private var imageClient = ImageStreamClient()
     @StateObject private var sensorClient = SensorStreamClient()
@@ -171,6 +172,7 @@ struct ContentView: View {
             cameraManager.pointCloudDelegate = pointCloudServer
             cameraManager.rosFrameDelegate = imageClient
             cameraManager.localVideoDelegate = videoRecorder
+            cameraManager.localDepthDelegate = depthRecorder
             print("✅ Set video and point cloud delegates")
 
             // Publish/log IMU at the full 50 Hz sensor rate, decoupled from the
@@ -655,6 +657,7 @@ struct ContentView: View {
             pointCloudServer.stopServer()
             sensorManager.stopUpdates()
             videoRecorder.stop()
+            depthRecorder.stop()
             sessionLogger.endSession()
             syncClient.publishRecordStatus(isRecording: false, reason: "manual_or_sync_stop")
             announceAction("Stopping camera and servers")
@@ -664,6 +667,7 @@ struct ContentView: View {
             sessionLogger.startNewSession(named: sessionName)
             if let dir = sessionLogger.sessionDirectory {
                 videoRecorder.start(in: dir)
+                depthRecorder.start(in: dir)
             }
             sensorManager.startUpdates()
             cameraManager.startSession()
@@ -828,6 +832,165 @@ final class SessionLogger: ObservableObject {
 ///                     as imu.csv / gps.csv / frame_meta.csv / sync_events.csv,
 ///                     so every modality is alignable, and sync_events.csv ties
 ///                     that phone clock to the robot clock.
+/// A depth map as 16-bit millimetres, the convention ROS uses and the one both
+/// the websocket stream and the local recorder write.
+///
+/// Zero means no reading: NaN, infinity and anything non-positive land there.
+/// Kept in one place because the stream and the file have to agree -- a bag and
+/// the recording beside it disagreeing about what a depth value means is the
+/// kind of thing that is only noticed months later.
+func depthToMillimetres(_ depthData: AVDepthData) -> (data: Data, width: Int, height: Int)? {
+    let depth32 = depthData.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
+    let map = depth32.depthDataMap
+    CVPixelBufferLockBaseAddress(map, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(map, .readOnly) }
+    guard let base = CVPixelBufferGetBaseAddress(map) else { return nil }
+    let w = CVPixelBufferGetWidth(map), h = CVPixelBufferGetHeight(map)
+    let stride = CVPixelBufferGetBytesPerRow(map)
+    var out = Data(count: w * h * 2)
+    out.withUnsafeMutableBytes { rawOut in
+        guard let dst = rawOut.bindMemory(to: UInt16.self).baseAddress else { return }
+        for y in 0..<h {
+            let src = base.advanced(by: y * stride).assumingMemoryBound(to: Float32.self)
+            let row = dst.advanced(by: y * w)
+            for x in 0..<w {
+                let metres = src[x]
+                row[x] = (metres.isFinite && metres > 0)
+                    ? UInt16(min(metres * 1000.0, 65535.0))
+                    : 0
+            }
+        }
+    }
+    return (out, w, h)
+}
+
+/// Deflate, matching what the stream sends. Apple's COMPRESSION_ZLIB emits raw
+/// deflate with no zlib header, so readers need the -MAX_WBITS fallback --
+/// sync_writer.py already has it.
+func zlibDeflate(_ input: Data) -> Data? {
+    if input.isEmpty { return Data() }
+    let cap = max(64, input.count + (input.count / 8) + 64)
+    var dst = Data(count: cap)
+    let written = input.withUnsafeBytes { srcBuf in
+        dst.withUnsafeMutableBytes { dstBuf in
+            guard let src = srcBuf.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                  let dstPtr = dstBuf.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
+            return compression_encode_buffer(dstPtr, cap, src, input.count, nil, COMPRESSION_ZLIB)
+        }
+    }
+    guard written > 0 else { return nil }
+    dst.removeSubrange(written..<dst.count)
+    return dst
+}
+
+/// Depth written straight to disk, so the phone's own copy does not depend on
+/// the network.
+///
+/// The colour side already survives a bad link -- video.mp4 and
+/// video_frames.csv are written locally and dropped websocket frames never
+/// touch them. Depth had no such copy, and it showed: with the robot sharing
+/// the hotspot, dataset_session_20260829_175231 got 761 depth frames at 5.5 Hz
+/// with 88 holes, against 9.2 Hz and almost none when the phone recorded alone.
+///
+/// One file, frames appended back to back, and a CSV naming the byte range of
+/// each. That beats a file per frame: thirty small files a second is filesystem
+/// overhead for nothing, and an offset is easier to seek to than a directory is
+/// to list. About 50 KB a frame compressed, so 1.5 MB/s at 30 Hz -- roughly
+/// half what the H.264 beside it costs.
+///
+/// The pending-byte cap is the point of the design. Writes are serialised onto
+/// one queue, and a frame is dropped rather than queued when more than
+/// maxPendingBytes is already waiting: an unbounded queue behind a slow disk is
+/// how the websocket publisher grew until iOS killed the app, and there is no
+/// reason to rebuild that here.
+final class LocalDepthRecorder: NSObject, ObservableObject, LocalDepthFrameDelegate {
+    @Published private(set) var isRecording = false
+
+    private var binHandle: FileHandle?
+    private var csvHandle: FileHandle?
+    private var offset: UInt64 = 0
+    private var frameIdx = 0
+    private var pendingBytes = 0
+    private var dropped = 0
+    private var lastDropLogTs: TimeInterval = 0
+    private let maxPendingBytes = 24 * 1024 * 1024
+    private let lock = NSLock()
+    private let ioQueue = DispatchQueue(label: "local.depth.io")
+
+    func start(in dir: URL) {
+        lock.lock(); defer { lock.unlock() }
+        guard binHandle == nil else { return }
+        let fm = FileManager.default
+        let binURL = dir.appendingPathComponent("depth.bin")
+        let csvURL = dir.appendingPathComponent("depth_frames.csv")
+        try? fm.removeItem(at: binURL)
+        fm.createFile(atPath: binURL.path, contents: nil)
+        fm.createFile(
+            atPath: csvURL.path,
+            contents: "frame_idx,phone_ts_unix,byte_offset,byte_length,width,height,format\n".data(using: .utf8))
+        binHandle = try? FileHandle(forWritingTo: binURL)
+        csvHandle = try? FileHandle(forWritingTo: csvURL)
+        offset = 0; frameIdx = 0; pendingBytes = 0; dropped = 0
+        guard binHandle != nil, csvHandle != nil else {
+            print("❌ LocalDepthRecorder: could not open depth.bin / depth_frames.csv")
+            return
+        }
+        DispatchQueue.main.async { self.isRecording = true }
+        print("🌊 LocalDepthRecorder started: \(binURL.path)")
+    }
+
+    func recordDepthFrame(_ depthData: AVDepthData, phoneTsUnix: Double) {
+        lock.lock()
+        guard let bin = binHandle, let csv = csvHandle else { lock.unlock(); return }
+        if pendingBytes > maxPendingBytes {
+            dropped += 1
+            let now = Date().timeIntervalSince1970
+            let shouldLog = now - lastDropLogTs >= 5.0
+            if shouldLog { lastDropLogTs = now }
+            let count = dropped
+            if shouldLog { dropped = 0 }
+            lock.unlock()
+            if shouldLog {
+                print("🌊 ⚠️ dropped \(count) depth frame(s): \(count) behind, disk not keeping up")
+            }
+            return
+        }
+        lock.unlock()
+
+        guard let (bytes, w, h) = depthToMillimetres(depthData),
+              let packed = zlibDeflate(bytes) else { return }
+
+        lock.lock()
+        let idx = frameIdx, at = offset
+        frameIdx += 1
+        offset += UInt64(packed.count)
+        pendingBytes += packed.count
+        lock.unlock()
+
+        let row = "\(idx),\(String(format: "%.6f", phoneTsUnix)),\(at),\(packed.count),\(w),\(h),16UC1;zlib\n"
+        ioQueue.async { [weak self] in
+            try? bin.write(contentsOf: packed)
+            if let d = row.data(using: .utf8) { try? csv.write(contentsOf: d) }
+            guard let self = self else { return }
+            self.lock.lock(); self.pendingBytes -= packed.count; self.lock.unlock()
+        }
+    }
+
+    func stop() {
+        lock.lock()
+        let bin = binHandle, csv = csvHandle
+        let n = frameIdx, total = offset
+        binHandle = nil; csvHandle = nil
+        lock.unlock()
+        guard bin != nil || csv != nil else { return }
+        ioQueue.async {
+            try? bin?.close(); try? csv?.close()
+            print("🌊 ✅ Depth saved: \(n) frames, \(total / 1024 / 1024) MB")
+        }
+        DispatchQueue.main.async { self.isRecording = false }
+    }
+}
+
 final class LocalVideoRecorder: NSObject, ObservableObject, LocalVideoFrameDelegate {
     @Published private(set) var isRecording = false
 
@@ -1499,47 +1662,9 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
     }
 
     private func publishDepthImage(depthData: AVDepthData, phoneTsUnix: Double) {
-        let depth32 = depthData.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
-        let depthMap = depth32.depthDataMap
-        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
-        guard let baseAddress = CVPixelBufferGetBaseAddress(depthMap) else { return }
-        let width = CVPixelBufferGetWidth(depthMap)
-        let height = CVPixelBufferGetHeight(depthMap)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
+        guard let (bytes, width, height) = depthToMillimetres(depthData) else { return }
         lastDepthSize = (width, height)
-
-        // 16-bit millimetres, not 32-bit metres. Half the bytes before
-        // compression, and integers whose neighbours differ by small amounts
-        // compress far better than float mantissas whose low bits are noise:
-        // the float payload measured 87.4 KB a frame, larger than the colour
-        // JPEG beside it at 53.5 KB despite covering a quarter of the pixels.
-        //
-        // This is also the convention ROS uses for depth, and what the
-        // pipeline wanted all along -- sync_writer.py ran every 32FC1 frame
-        // through depth * 1000 clipped to [0, 65535] to get here, so the
-        // conversion moves to the side that has the pixels rather than the
-        // side that has to decompress them first. Its 16uc1 branch already
-        // exists.
-        //
-        // Zero means no reading, matching that same convention: NaN, infinity
-        // and anything non-positive land there.
-        var depthBytes = Data(count: width * height * 2)
-        depthBytes.withUnsafeMutableBytes { rawOut in
-            guard let out = rawOut.bindMemory(to: UInt16.self).baseAddress else { return }
-            for y in 0..<height {
-                let src = baseAddress.advanced(by: y * bytesPerRow)
-                                     .assumingMemoryBound(to: Float32.self)
-                let dst = out.advanced(by: y * width)
-                for x in 0..<width {
-                    let metres = src[x]
-                    dst[x] = (metres.isFinite && metres > 0)
-                        ? UInt16(min(metres * 1000.0, 65535.0))
-                        : 0
-                }
-            }
-        }
-        guard let compressedDepth = zlibCompress(depthBytes) else { return }
+        guard let compressedDepth = zlibDeflate(bytes) else { return }
         let msg: [String: Any] = [
             "header": [
                 "stamp": makeRosStamp(fromUnix: phoneTsUnix),
@@ -1555,30 +1680,6 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         ], partOfFrame: true)
     }
 
-    private func zlibCompress(_ input: Data) -> Data? {
-        if input.isEmpty { return Data() }
-        let dstCapacity = max(64, input.count + (input.count / 8) + 64)
-        var dst = Data(count: dstCapacity)
-        let written = input.withUnsafeBytes { srcBuf in
-            dst.withUnsafeMutableBytes { dstBuf in
-                guard let src = srcBuf.baseAddress?.assumingMemoryBound(to: UInt8.self),
-                      let dstPtr = dstBuf.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-                    return 0
-                }
-                return compression_encode_buffer(
-                    dstPtr,
-                    dstCapacity,
-                    src,
-                    input.count,
-                    nil,
-                    COMPRESSION_ZLIB
-                )
-            }
-        }
-        guard written > 0 else { return nil }
-        dst.removeSubrange(written..<dst.count)
-        return dst
-    }
 
     private func makeRosStamp(fromUnix ts: Double) -> [String: Int] {
         let sec = Int(ts)
