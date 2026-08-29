@@ -195,8 +195,20 @@ class PointCloudServer: NSObject, ObservableObject {
 
         // Create URLSession with delegate
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 10
-        config.timeoutIntervalForResource = 60
+        // timeoutIntervalForResource caps how long the whole task may live,
+        // and a websocket task lives as long as its connection -- so 60 here
+        // was a scheduled execution, not a safety net. It showed up on the
+        // bridge as a new client every 60 to 73 seconds, climbing to eight
+        // over one recording while the old ones were never cleaned up, and in
+        // the phone log as -1001 "The request timed out" on a link that was
+        // carrying 5 Hz of point clouds a moment earlier. A session runs for
+        // minutes; give the connection a day.
+        //
+        // The request timeout can also fire between messages on a quiet link,
+        // and rosbridge sends a publisher nothing at all, so 10 s was tight
+        // for a connection that only ever talks.
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 86400
         config.waitsForConnectivity = false
         urlSession = URLSession(configuration: config, delegate: self, delegateQueue: OperationQueue())
 

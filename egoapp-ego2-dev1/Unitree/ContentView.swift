@@ -1002,7 +1002,7 @@ final class SyncEventClient: ObservableObject {
         let urlString = "ws://\(rosBridgeHost):\(rosBridgePort)"
         guard let url = URL(string: urlString) else { return }
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 10
+        config.timeoutIntervalForRequest = 30
         urlSession = URLSession(configuration: config)
         webSocketTask = urlSession?.webSocketTask(with: url)
         webSocketTask?.resume()
@@ -1211,7 +1211,7 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         let urlString = "ws://\(rosBridgeHost):\(rosBridgePort)"
         guard let url = URL(string: urlString) else { return }
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 10
+        config.timeoutIntervalForRequest = 30
         urlSession = URLSession(configuration: config, delegate: self, delegateQueue: OperationQueue())
         webSocketTask = urlSession?.webSocketTask(with: url)
         webSocketTask?.resume()
@@ -1559,7 +1559,7 @@ final class SensorStreamClient: NSObject, ObservableObject, URLSessionWebSocketD
         let urlString = "ws://\(rosBridgeHost):\(rosBridgePort)"
         guard let url = URL(string: urlString) else { return }
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 10
+        config.timeoutIntervalForRequest = 30
         urlSession = URLSession(configuration: config, delegate: self, delegateQueue: OperationQueue())
         webSocketTask = urlSession?.webSocketTask(with: url)
         webSocketTask?.resume()
