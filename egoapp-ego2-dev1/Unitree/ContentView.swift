@@ -770,12 +770,24 @@ final class SessionLogger: ObservableObject {
         }
     }
 
+    private var lastCameraInfoWritten: String?
+
     /// The camera's own numbers, over the video buffer they describe. Scaling
     /// to any stream that was published from it is division: the depth map at
     /// 320x240 against a 1920x1440 buffer divides by six.
     func writeCameraInfo(fx: Float, fy: Float, cx: Float, cy: Float,
                          videoWidth: Int, videoHeight: Int) {
         guard let dir = sessionDir else { return }
+        // The camera reports its intrinsics on every frame, so that a delegate
+        // wired after capture started still receives them. The format is
+        // pinned, so fx and fy hold still, but OIS shifts the lens and the
+        // principal point moves with it -- which is exactly why AVFoundation
+        // makes this a per-buffer attachment rather than a constant. Writing
+        // only on change keeps the file to one line of IO in the common case
+        // without deciding in advance that nothing can move.
+        let key = "\(videoWidth)x\(videoHeight):\(fx),\(fy),\(cx),\(cy)"
+        guard key != lastCameraInfoWritten else { return }
+        lastCameraInfoWritten = key
         let json = """
         {
           "video_width": \(videoWidth),
@@ -1576,6 +1588,12 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
             if let depthData = depthData {
                 self.publishDepthImage(depthData: depthData, phoneTsUnix: now)
             }
+            // lastColorSize/lastDepthSize are written by the two calls above and
+            // read by this one, all on publishQueue, so the CameraInfo that
+            // describes those sizes has to go out from here. It had no call
+            // site at all until now: the function, the advertise and the
+            // scaling were all in place and the topic still recorded 0 msgs.
+            self.publishCameraInfoIfDue(now)
         }
     }
 

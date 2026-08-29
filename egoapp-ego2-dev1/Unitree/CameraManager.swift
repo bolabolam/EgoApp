@@ -699,7 +699,14 @@ extension CameraManager {
     /// should come back equal; if they do not, the sensor is not what we think
     /// it is and the numbers below are the ones to trust over any estimate.
     func readIntrinsicsIfPresent(_ sampleBuffer: CMSampleBuffer) {
-        guard !loggedIntrinsics else { return }
+        // Read on every frame, not once. The delegates are wired from
+        // ContentView.onAppear, which can land after capture has already
+        // started, and a socket that drops takes its client down with it. A
+        // one-shot guard here handed the calibration to a nil delegate and
+        // latched, so dataset_session_20260829_213500 recorded 0 CameraInfo
+        // and wrote no camera_info.json -- the depth in it cannot be
+        // unprojected by anything. Four floats per frame is not a cost worth
+        // that failure mode; only the log is still once.
         guard let data = CMGetAttachment(
                 sampleBuffer,
                 key: kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix,
@@ -707,6 +714,7 @@ extension CameraManager {
               data.count >= MemoryLayout<matrix_float3x3>.size else { return }
         let m: matrix_float3x3 = data.withUnsafeBytes { $0.load(as: matrix_float3x3.self) }
         videoIntrinsics = m
+        let shouldLog = !loggedIntrinsics
         loggedIntrinsics = true
 
         let fx = m.columns.0.x, fy = m.columns.1.y
@@ -716,24 +724,27 @@ extension CameraManager {
             let d = CMVideoFormatDescriptionGetDimensions(fd)
             vw = Int(d.width); vh = Int(d.height)
         }
-        print("📐 ===== Camera intrinsics (video \(vw)x\(vh)) =====")
-        print(String(format: "📐   fx %.2f  fy %.2f  cx %.2f  cy %.2f", fx, fy, cx, cy))
-        print(String(format: "📐   fx/fy %.4f  (square pixels put this at 1.0)", fx / fy))
+        if shouldLog {
+            print("📐 ===== Camera intrinsics (video \(vw)x\(vh)) =====")
+            print(String(format: "📐   fx %.2f  fy %.2f  cx %.2f  cy %.2f", fx, fy, cx, cy))
+            print(String(format: "📐   fx/fy %.4f  (square pixels put this at 1.0)", fx / fy))
+        }
         // Scale to the depth map. Both axes divide by the same factor when the
         // depth format keeps the video's aspect, which 320x240 against
         // 1920x1440 does.
         let dw: Float = 320, dh: Float = 240
         if vw > 0 && vh > 0 {
             let sx = dw / Float(vw), sy = dh / Float(vh)
-            print(String(format: "📐   scaled to depth 320x240: fx %.2f  fy %.2f  cx %.2f  cy %.2f",
-                         fx * sx, fy * sy, cx * sx, cy * sy))
-            print(String(format: "📐   PointCloudServer was using fx 288.00  fy 216.00  cx 160.00  cy 120.00"))
+            if shouldLog {
+                print(String(format: "📐   scaled to depth 320x240: fx %.2f  fy %.2f  cx %.2f  cy %.2f",
+                             fx * sx, fy * sy, cx * sx, cy * sy))
+            }
             pointCloudDelegate?.setDepthIntrinsics(fx: fx * sx, fy: fy * sy,
                                                    cx: cx * sx, cy: cy * sy)
         }
         rosFrameDelegate?.setCameraIntrinsics(fx: fx, fy: fy, cx: cx, cy: cy,
                                               videoWidth: vw, videoHeight: vh)
-        print("📐 =============================================")
+        if shouldLog { print("📐 =============================================") }
     }
 }
 
