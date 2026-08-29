@@ -7,6 +7,7 @@
 
 import AVFoundation
 import UIKit
+import simd
 
 class CameraManager: NSObject, ObservableObject {
     @Published var isSessionRunning = false
@@ -44,6 +45,18 @@ class CameraManager: NSObject, ObservableObject {
     private var depthDroppedBySystem = 0
     private var depthAbsent = 0
     private var lastDepthStatsTs: TimeInterval = 0
+
+    /// The real intrinsics, once the hardware has told us what they are.
+    ///
+    /// PointCloudServer builds its clouds from fx = width * 0.9 and
+    /// fy = height * 0.9, which makes fx/fy exactly the image's 4:3 aspect
+    /// ratio. That is the pixel aspect ratio, not the image's, and on a sensor
+    /// with square pixels the two focal lengths belong equal -- so every cloud
+    /// published so far is stretched in y against x by a third. Depth itself
+    /// was never touched, and the projection inverts exactly, so the recorded
+    /// clouds can be rebuilt once these numbers are known.
+    private(set) var videoIntrinsics: matrix_float3x3?
+    private var loggedIntrinsics = false
 
     // 视频输出连接，用于动态调整方向
     private var videoConnection: AVCaptureConnection?
@@ -478,6 +491,19 @@ class CameraManager: NSObject, ObservableObject {
         if let connection = videoOutput.connection(with: .video) {
             self.videoConnection = connection
 
+            // Ask for the intrinsic matrix to ride along on every sample
+            // buffer. Nothing publishes the phone's calibration today, so a
+            // depth frame that arrives here cannot be unprojected by anything
+            // downstream -- which is why the point cloud has to be built in
+            // the app, with guessed numbers, instead of offline from the depth
+            // image where it belongs.
+            if connection.isCameraIntrinsicMatrixDeliverySupported {
+                connection.isCameraIntrinsicMatrixDeliveryEnabled = true
+                print("✅ Camera intrinsic matrix delivery enabled")
+            } else {
+                print("⚠️ Camera intrinsic matrix delivery not supported on this connection")
+            }
+
             // 固定为横屏方向，确保输出始终是1280x720
             if #available(iOS 17.0, *) {
                 // 设置为0度（横屏右）
@@ -662,6 +688,48 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
     }
 }
 
+extension CameraManager {
+    /// Pull the intrinsic matrix off the sample buffer and report it once.
+    ///
+    /// The matrix describes the video buffer, so it is also printed scaled to
+    /// the depth map, which is what actually needs unprojecting. fx and fy
+    /// should come back equal; if they do not, the sensor is not what we think
+    /// it is and the numbers below are the ones to trust over any estimate.
+    func readIntrinsicsIfPresent(_ sampleBuffer: CMSampleBuffer) {
+        guard !loggedIntrinsics else { return }
+        guard let data = CMGetAttachment(
+                sampleBuffer,
+                key: kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix,
+                attachmentModeOut: nil) as? Data,
+              data.count >= MemoryLayout<matrix_float3x3>.size else { return }
+        let m: matrix_float3x3 = data.withUnsafeBytes { $0.load(as: matrix_float3x3.self) }
+        videoIntrinsics = m
+        loggedIntrinsics = true
+
+        let fx = m.columns.0.x, fy = m.columns.1.y
+        let cx = m.columns.2.x, cy = m.columns.2.y
+        var vw = 0, vh = 0
+        if let fd = CMSampleBufferGetFormatDescription(sampleBuffer) {
+            let d = CMVideoFormatDescriptionGetDimensions(fd)
+            vw = Int(d.width); vh = Int(d.height)
+        }
+        print("📐 ===== Camera intrinsics (video \(vw)x\(vh)) =====")
+        print(String(format: "📐   fx %.2f  fy %.2f  cx %.2f  cy %.2f", fx, fy, cx, cy))
+        print(String(format: "📐   fx/fy %.4f  (square pixels put this at 1.0)", fx / fy))
+        // Scale to the depth map. Both axes divide by the same factor when the
+        // depth format keeps the video's aspect, which 320x240 against
+        // 1920x1440 does.
+        let dw: Float = 320, dh: Float = 240
+        if vw > 0 && vh > 0 {
+            let sx = dw / Float(vw), sy = dh / Float(vh)
+            print(String(format: "📐   scaled to depth 320x240: fx %.2f  fy %.2f  cx %.2f  cy %.2f",
+                         fx * sx, fy * sy, cx * sx, cy * sy))
+            print(String(format: "📐   PointCloudServer is using fx 288.00  fy 216.00  cx 160.00  cy 120.00"))
+        }
+        print("📐 =============================================")
+    }
+}
+
 // MARK: - AVCaptureDataOutputSynchronizerDelegate
 extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
     func dataOutputSynchronizer(_ synchronizer: AVCaptureDataOutputSynchronizer,
@@ -678,6 +746,7 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
 
         // sampleBuffer is not optional, so access it directly
         let videoSampleBuffer = syncedVideoData.sampleBuffer
+        readIntrinsicsIfPresent(videoSampleBuffer)
 
         var depthData: AVDepthData? = nil
         if let depthOutput = depthOutput {
