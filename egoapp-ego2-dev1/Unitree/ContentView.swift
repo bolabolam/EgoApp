@@ -173,6 +173,10 @@ struct ContentView: View {
             cameraManager.rosFrameDelegate = imageClient
             cameraManager.localVideoDelegate = videoRecorder
             cameraManager.localDepthDelegate = depthRecorder
+            imageClient.onIntrinsics = { fx, fy, cx, cy, w, h in
+                sessionLogger.writeCameraInfo(fx: fx, fy: fy, cx: cx, cy: cy,
+                                              videoWidth: w, videoHeight: h)
+            }
             print("✅ Set video and point cloud delegates")
 
             // Publish/log IMU at the full 50 Hz sensor rate, decoupled from the
@@ -763,6 +767,28 @@ final class SessionLogger: ObservableObject {
             print("📁 Session logger started at: \(dir.path)")
         } catch {
             print("❌ Session logger init failed: \(error)")
+        }
+    }
+
+    /// The camera's own numbers, over the video buffer they describe. Scaling
+    /// to any stream that was published from it is division: the depth map at
+    /// 320x240 against a 1920x1440 buffer divides by six.
+    func writeCameraInfo(fx: Float, fy: Float, cx: Float, cy: Float,
+                         videoWidth: Int, videoHeight: Int) {
+        guard let dir = sessionDir else { return }
+        let json = """
+        {
+          "video_width": \(videoWidth),
+          "video_height": \(videoHeight),
+          "fx": \(fx), "fy": \(fy), "cx": \(cx), "cy": \(cy),
+          "distortion_model": "plumb_bob",
+          "d": [0, 0, 0, 0, 0],
+          "note": "intrinsics as reported by AVFoundation for the video buffer; scale by target width / video_width for any other stream. d is zero: this is the ideal pinhole matrix, the lens distortion table is not applied."
+        }
+        """
+        ioQueue.async {
+            try? json.data(using: .utf8)?
+                .write(to: dir.appendingPathComponent("camera_info.json"))
         }
     }
 
@@ -1442,7 +1468,14 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
                              videoWidth: Int, videoHeight: Int) {
         guard videoWidth > 0, videoHeight > 0 else { return }
         videoIntrinsics = (fx, fy, cx, cy, videoWidth, videoHeight)
+        onIntrinsics?(fx, fy, cx, cy, videoWidth, videoHeight)
     }
+
+    /// Handed to the session so the calibration lands on disk as well as on the
+    /// wire. Everything else the phone records survives a dead link; without
+    /// this the intrinsics would be the one piece that does not, and a depth
+    /// frame with no calibration cannot be unprojected by anything.
+    var onIntrinsics: ((Float, Float, Float, Float, Int, Int) -> Void)?
 
     /// One CameraInfo per stream, once a second. Intrinsics do not change, so
     /// this is about being present in every recording rather than about rate;
