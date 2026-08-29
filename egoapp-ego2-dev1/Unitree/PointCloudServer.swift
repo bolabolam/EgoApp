@@ -105,6 +105,20 @@ class PointCloudServer: NSObject, ObservableObject {
     // LiDAR depth is typically 256x192, step=2 gives ~6K points, step=4 gives ~1.5K
     private let sampleStep = 2
 
+    /// Intrinsics from the hardware, scaled to the depth map, once
+    /// CameraManager has them. Nil until the first sample buffer arrives.
+    ///
+    /// The fallbacks below stood in for these and were wrong in the way that
+    /// is easy to miss: fx = width * 0.9 and fy = height * 0.9 make fx/fy the
+    /// image's 4:3 aspect ratio, which is the pixel aspect ratio only if the
+    /// pixels are 4:3, and they are square. Measured on this phone the depth
+    /// map wants fx = fy = 254.32 and the code used 288 and 216 -- x squeezed
+    /// by 11.7 %, y stretched by 17.7 %, the pair off by exactly 4/3.
+    ///
+    /// The principal point guess was almost exact: 160.00 against 160.30 and
+    /// 120.00 against 119.98, three tenths of a pixel, 3.5 mm at three metres.
+    private var depthIntrinsics: (fx: Float, fy: Float, cx: Float, cy: Float)?
+
     override init() {
         // Load saved IP or use default
         self.rosBridgeHost = RosBridgeDefaults.savedOrCurrentHost()
@@ -523,11 +537,18 @@ class PointCloudServer: NSObject, ObservableObject {
         let bytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
         let pixelFormat = CVPixelBufferGetPixelFormatType(depthMap)
 
-        // Camera intrinsics (approximate values for iPhone LiDAR)
-        let fx: Float = Float(width) * 0.9
-        let fy: Float = Float(height) * 0.9
-        let cx = Float(width) / 2.0
-        let cy = Float(height) / 2.0
+        // Measured intrinsics when the hardware has reported them, the old
+        // guesses only until it does -- which is the first video frame, so in
+        // practice only a frame or two ever uses them.
+        let fx: Float, fy: Float, cx: Float, cy: Float
+        if let k = depthIntrinsics {
+            fx = k.fx; fy = k.fy; cx = k.cx; cy = k.cy
+        } else {
+            fx = Float(width) * 0.9
+            fy = Float(height) * 0.9
+            cx = Float(width) / 2.0
+            cy = Float(height) / 2.0
+        }
 
         // Pre-allocate buffer for max possible points
         let maxPoints = ((width + sampleStep - 1) / sampleStep) * ((height + sampleStep - 1) / sampleStep)
@@ -695,6 +716,12 @@ extension PointCloudServer: URLSessionWebSocketDelegate {
 
 // MARK: - PointCloudDelegate
 extension PointCloudServer: PointCloudDelegate {
+    func setDepthIntrinsics(fx: Float, fy: Float, cx: Float, cy: Float) {
+        depthIntrinsics = (fx, fy, cx, cy)
+        print(String(format: "☁️ Point cloud now using measured intrinsics "
+                     + "fx %.2f fy %.2f cx %.2f cy %.2f", fx, fy, cx, cy))
+    }
+
     func didCaptureDepthData(_ depthData: AVDepthData) {
         guard isRunning else { return }
 

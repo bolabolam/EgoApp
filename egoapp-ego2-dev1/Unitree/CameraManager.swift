@@ -724,7 +724,9 @@ extension CameraManager {
             let sx = dw / Float(vw), sy = dh / Float(vh)
             print(String(format: "📐   scaled to depth 320x240: fx %.2f  fy %.2f  cx %.2f  cy %.2f",
                          fx * sx, fy * sy, cx * sx, cy * sy))
-            print(String(format: "📐   PointCloudServer is using fx 288.00  fy 216.00  cx 160.00  cy 120.00"))
+            print(String(format: "📐   PointCloudServer was using fx 288.00  fy 216.00  cx 160.00  cy 120.00"))
+            pointCloudDelegate?.setDepthIntrinsics(fx: fx * sx, fy: fy * sy,
+                                                   cx: cx * sx, cy: cy * sy)
         }
         print("📐 =============================================")
     }
@@ -802,6 +804,9 @@ protocol VideoStreamDelegate: AnyObject {
 // MARK: - PointCloudDelegate Protocol
 protocol PointCloudDelegate: AnyObject {
     func didCaptureDepthData(_ depthData: AVDepthData)
+    /// The real focal lengths and principal point, already scaled to the depth
+    /// map, handed over as soon as the hardware reports them.
+    func setDepthIntrinsics(fx: Float, fy: Float, cx: Float, cy: Float)
 }
 
 // MARK: - ROS Frame Delegate Protocol
