@@ -1125,6 +1125,19 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
     private var droppedFrameCount = 0
     private var lastDropLogTs: TimeInterval = 0
     private var lastImagePublishTs: TimeInterval = 0
+    /// Footprint accounting, because the crashes correlate with the robot being
+    /// on the network rather than with anything the app is asked to do: with
+    /// the dog connected nearly every session died, and the one recorded
+    /// without it survived 94 s.
+    ///
+    /// The gate below drops frames while a send is in flight, which is meant to
+    /// stop payloads accumulating. But URLSession calls the send completion
+    /// when the message reaches the transport, not when it reaches the wire, so
+    /// a congested link releases the gate early and the backlog moves into
+    /// URLSession's own buffers where nothing here can see it. phys_footprint
+    /// is what jetsam measures, so it is what this prints.
+    private var lastFootprintLogTs: TimeInterval = 0
+    private var peakPendingSends = 0
     private let imagePublishInterval: TimeInterval = 1.0 / 15.0 // 15 Hz
 
     /// Long-edge width the color frame is downscaled to before JPEG encoding.
@@ -1191,9 +1204,41 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         ])
     }
 
+    /// Resident footprint in MB, the figure jetsam kills on. -1 if unavailable.
+    private func footprintMB() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else { return -1 }
+        return Double(info.phys_footprint) / 1024.0 / 1024.0
+    }
+
+    private func logFootprintIfDue(_ now: TimeInterval) {
+        publishStateLock.lock()
+        let pending = pendingSends
+        if pending > peakPendingSends { peakPendingSends = pending }
+        let peak = peakPendingSends
+        let due = now - lastFootprintLogTs >= 5.0
+        if due {
+            lastFootprintLogTs = now
+            peakPendingSends = 0
+        }
+        publishStateLock.unlock()
+        if due {
+            print(String(format: "🧠 footprint %.1f MB, sends in flight %d (peak %d over 5 s)",
+                         footprintMB(), pending, peak))
+        }
+    }
+
     func didCaptureFrame(_ sampleBuffer: CMSampleBuffer, depthData: AVDepthData?) {
         guard isConnected else { return }
         let now = Date().timeIntervalSince1970
+        logFootprintIfDue(now)
         guard now - lastImagePublishTs >= imagePublishInterval else { return }
         guard tryBeginPublishingFrame() else {
             noteDroppedFrame(now)

@@ -34,6 +34,17 @@ class CameraManager: NSObject, ObservableObject {
 
     private var isCameraSetup = false
 
+    // Depth delivery accounting. /camera_person/depth/image_raw/compressed
+    // arrived at half the colour rate in dataset_session_20260829_115927 --
+    // 626 frames against 1228 -- and colour and depth are published together
+    // from one gated frame, so the shortfall is depthData being nil here, not
+    // anything downstream. depthDataWasDropped says whether AVFoundation threw
+    // the frame away or never produced it, and that is the fork this counts.
+    private var depthDelivered = 0
+    private var depthDroppedBySystem = 0
+    private var depthAbsent = 0
+    private var lastDepthStatsTs: TimeInterval = 0
+
     // 视频输出连接，用于动态调整方向
     private var videoConnection: AVCaptureConnection?
 
@@ -393,6 +404,23 @@ class CameraManager: NSObject, ObservableObject {
                 } else {
                     print("✅ Depth format configured")
                 }
+                // The frame durations are what actually cap each stream. A
+                // depth minimum longer than the video minimum means the
+                // hardware cannot pair every frame, and no amount of tuning
+                // downstream will change that.
+                let vDims = CMVideoFormatDescriptionGetDimensions(
+                    selectedDevice.activeFormat.formatDescription)
+                let vMin = selectedDevice.activeVideoMinFrameDuration
+                let dMin = selectedDevice.activeDepthDataMinFrameDuration
+                let vHz = vMin.seconds > 0 ? 1.0 / vMin.seconds : 0
+                let dHz = dMin.seconds > 0 ? 1.0 / dMin.seconds : 0
+                print("📊 ACTIVE video format: \(vDims.width)x\(vDims.height), "
+                      + "min frame duration \(vMin.seconds * 1000) ms (max \(vHz) Hz)")
+                if let df = selectedDevice.activeDepthDataFormat {
+                    let dDims = CMVideoFormatDescriptionGetDimensions(df.formatDescription)
+                    print("📊 ACTIVE depth format: \(dDims.width)x\(dDims.height), "
+                          + "min frame duration \(dMin.seconds * 1000) ms (max \(dHz) Hz)")
+                }
             } catch {
                 print("⚠️ Could not set depth format: \(error)")
             }
@@ -633,10 +661,36 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
         let videoSampleBuffer = syncedVideoData.sampleBuffer
 
         var depthData: AVDepthData? = nil
-        if let depthOutput = depthOutput,
-           let syncedDepthData = synchronizedDataCollection.synchronizedData(for: depthOutput) as? AVCaptureSynchronizedDepthData,
-           !syncedDepthData.depthDataWasDropped {
-            depthData = syncedDepthData.depthData
+        if let depthOutput = depthOutput {
+            if let syncedDepthData = synchronizedDataCollection.synchronizedData(for: depthOutput) as? AVCaptureSynchronizedDepthData {
+                if syncedDepthData.depthDataWasDropped {
+                    // AVFoundation had the frame and threw it away, usually
+                    // because a delegate queue was still busy.
+                    depthDroppedBySystem += 1
+                } else {
+                    depthData = syncedDepthData.depthData
+                    depthDelivered += 1
+                }
+            } else {
+                // No depth in this synchronized collection at all: the sensor
+                // is running slower than the video stream.
+                depthAbsent += 1
+            }
+        }
+
+        let statsNow = Date().timeIntervalSince1970
+        if statsNow - lastDepthStatsTs >= 5.0 {
+            lastDepthStatsTs = statsNow
+            let total = depthDelivered + depthDroppedBySystem + depthAbsent
+            if total > 0 {
+                print("📊 depth over \(total) video frames: "
+                      + "delivered \(depthDelivered), "
+                      + "dropped by AVFoundation \(depthDroppedBySystem), "
+                      + "not produced \(depthAbsent)")
+            }
+            depthDelivered = 0
+            depthDroppedBySystem = 0
+            depthAbsent = 0
         }
 
         // Pass video data to video stream server
@@ -647,11 +701,6 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
         // Pass depth data to point cloud server
         if let depthData = depthData {
             pointCloudDelegate?.didCaptureDepthData(depthData)
-        } else {
-            // Only log occasionally to avoid spam
-            if Int.random(in: 0..<100) == 0 {
-                print("⚠️ No depth data available in synchronized frame")
-            }
         }
     }
 }
