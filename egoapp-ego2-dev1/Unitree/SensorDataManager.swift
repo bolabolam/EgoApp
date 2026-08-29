@@ -25,7 +25,15 @@ final class SensorDataManager: NSObject, ObservableObject {
     @Published var verticalSpeed: Double?
     @Published var locationTimestamp: Date?
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
-    @Published var isLocationServiceEnabled = CLLocationManager.locationServicesEnabled()
+    /// Whether the system location switch is on, for the status row only.
+    ///
+    /// Deliberately not read here. CLLocationManager.locationServicesEnabled()
+    /// blocks on a daemon, and Apple warns about calling it on the main thread
+    /// -- which a property initialiser on a @StateObject is. It ran twice on
+    /// every launch, once here and once in startLocationUpdates, and both
+    /// showed up in the log. Nothing gates on it either: the authorisation
+    /// callback below decides whether updates start.
+    @Published var isLocationServiceEnabled = false
     @Published var isSimulatedBySoftware: Bool?
     @Published var isProducedByAccessory: Bool?
     
@@ -109,9 +117,17 @@ final class SensorDataManager: NSObject, ObservableObject {
         }
     }
     
+    /// Reads the system switch off the main thread, for display only.
+    private func refreshLocationServicesFlag() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let enabled = CLLocationManager.locationServicesEnabled()
+            DispatchQueue.main.async { self?.isLocationServiceEnabled = enabled }
+        }
+    }
+
     private func startLocationUpdates() {
-        isLocationServiceEnabled = CLLocationManager.locationServicesEnabled()
         authorizationStatus = locationManager.authorizationStatus
+        refreshLocationServicesFlag()
         
         switch authorizationStatus {
         case .notDetermined:
@@ -197,7 +213,16 @@ final class SensorDataManager: NSObject, ObservableObject {
 extension SensorDataManager: CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
-        startLocationUpdates()
+        refreshLocationServicesFlag()
+        // Only act on an answer. Re-entering startLocationUpdates while the
+        // status is still notDetermined would ask for permission again on the
+        // back of the callback that permission was asked for.
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            startLocationUpdates()
+        default:
+            break
+        }
     }
     
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
