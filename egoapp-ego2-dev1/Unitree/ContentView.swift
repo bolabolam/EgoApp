@@ -16,6 +16,8 @@ struct ContentView: View {
     @StateObject private var cameraManager = CameraManager()
     @StateObject private var streamServer = VideoStreamServer()
     @StateObject private var pointCloudServer = PointCloudServer()
+    /// Set true to stream /camera_person/points again, for a live RViz view.
+    private let publishPointCloud = false
     @StateObject private var sensorManager = SensorDataManager()
     @State private var previousCameraState = false
     @State private var previousServerURL = "Not Started"
@@ -666,7 +668,15 @@ struct ContentView: View {
             sensorManager.startUpdates()
             cameraManager.startSession()
             streamServer.startServer()
-            pointCloudServer.startServer()
+            // The cloud is the depth image projected with intrinsics, and both
+            // now travel: 16UC1 depth at 10 Hz over every one of its 76800
+            // pixels, against 5 Hz of about 14000 subsampled points costing
+            // 0.82 MB/s. Rebuilding offline is denser, faster and no longer
+            // guesswork, so this stays off and the bandwidth goes to the
+            // streams that carry something the other cannot.
+            if publishPointCloud {
+                pointCloudServer.startServer()
+            }
             syncClient.publishRecordStatus(isRecording: true, reason: "manual_or_sync_start")
             announceAction("Starting camera and servers")
         }
@@ -1122,6 +1132,21 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
     private var isConnected = false
     private let colorImageTopic = "/camera_person/color/image_raw/compressed"
     private let depthImageTopic = "/camera_person/depth/image_raw/compressed"
+    private let colorInfoTopic = "/camera_person/color/camera_info"
+    private let depthInfoTopic = "/camera_person/depth/camera_info"
+
+    /// The camera's own intrinsics over the video buffer, and the size of the
+    /// last frame published on each stream, so each CameraInfo can be scaled to
+    /// the images it actually describes.
+    ///
+    /// Without these a recorded depth frame cannot be unprojected by anything
+    /// downstream, which is the only reason the cloud had to be built in the
+    /// app at all -- and it was built from guesses.
+    private var videoIntrinsics: (fx: Float, fy: Float, cx: Float, cy: Float,
+                                  w: Int, h: Int)?
+    private var lastColorSize: (w: Int, h: Int)?
+    private var lastDepthSize: (w: Int, h: Int)?
+    private var lastCameraInfoTs: TimeInterval = 0
     private let publishQueue = DispatchQueue(label: "image.publish.queue", qos: .userInitiated)
     private let publishStateLock = NSLock()
     /// True from the moment a frame starts encoding until the last websocket
@@ -1238,6 +1263,62 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
             "topic": depthImageTopic,
             "type": "sensor_msgs/msg/CompressedImage"
         ])
+        sendJson([
+            "op": "advertise",
+            "topic": colorInfoTopic,
+            "type": "sensor_msgs/msg/CameraInfo"
+        ])
+        sendJson([
+            "op": "advertise",
+            "topic": depthInfoTopic,
+            "type": "sensor_msgs/msg/CameraInfo"
+        ])
+    }
+
+    func setCameraIntrinsics(fx: Float, fy: Float, cx: Float, cy: Float,
+                             videoWidth: Int, videoHeight: Int) {
+        guard videoWidth > 0, videoHeight > 0 else { return }
+        videoIntrinsics = (fx, fy, cx, cy, videoWidth, videoHeight)
+    }
+
+    /// One CameraInfo per stream, once a second. Intrinsics do not change, so
+    /// this is about being present in every recording rather than about rate;
+    /// at a couple of hundred bytes it does not compete with anything.
+    ///
+    /// d is zero and the model nominally plumb_bob: AVFoundation's intrinsic
+    /// matrix describes an ideal pinhole, and the lens distortion lookup table
+    /// it offers separately is not being used. For this sensor and this
+    /// purpose that is the usual simplification, but it is a simplification.
+    private func publishCameraInfoIfDue(_ now: TimeInterval) {
+        guard now - lastCameraInfoTs >= 1.0, let k = videoIntrinsics else { return }
+        lastCameraInfoTs = now
+        let stamp = makeRosStamp(fromUnix: now)
+        for (topic, size, frame) in [
+            (colorInfoTopic, lastColorSize, "person_camera_color_optical_frame"),
+            (depthInfoTopic, lastDepthSize, "person_camera_depth_optical_frame")
+        ] {
+            guard let size = size, size.w > 0, size.h > 0 else { continue }
+            let sx = Float(size.w) / Float(k.w)
+            let sy = Float(size.h) / Float(k.h)
+            let fx = Double(k.fx * sx), fy = Double(k.fy * sy)
+            let cx = Double(k.cx * sx), cy = Double(k.cy * sy)
+            sendJson([
+                "op": "publish",
+                "topic": topic,
+                "msg": [
+                    "header": ["stamp": stamp, "frame_id": frame],
+                    "height": size.h,
+                    "width": size.w,
+                    "distortion_model": "plumb_bob",
+                    "d": [0.0, 0.0, 0.0, 0.0, 0.0],
+                    "k": [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0],
+                    "r": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                    "p": [fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0],
+                    "binning_x": 0,
+                    "binning_y": 0
+                ]
+            ])
+        }
     }
 
     /// Resident footprint in MB, the figure jetsam kills on. -1 if unavailable.
@@ -1399,6 +1480,7 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         }
 
         guard let cgImage = Self.ciContext.createCGImage(ciImage, from: renderRect) else { return }
+        lastColorSize = (cgImage.width, cgImage.height)
         let image = UIImage(cgImage: cgImage)
         guard let jpegData = image.jpegData(compressionQuality: jpegQuality) else { return }
         let msg: [String: Any] = [
@@ -1425,6 +1507,7 @@ final class ImageStreamClient: NSObject, ObservableObject, RosFrameDelegate, URL
         let width = CVPixelBufferGetWidth(depthMap)
         let height = CVPixelBufferGetHeight(depthMap)
         let bytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
+        lastDepthSize = (width, height)
 
         // 16-bit millimetres, not 32-bit metres. Half the bytes before
         // compression, and integers whose neighbours differ by small amounts

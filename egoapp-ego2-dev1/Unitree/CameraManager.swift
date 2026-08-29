@@ -728,6 +728,8 @@ extension CameraManager {
             pointCloudDelegate?.setDepthIntrinsics(fx: fx * sx, fy: fy * sy,
                                                    cx: cx * sx, cy: cy * sy)
         }
+        rosFrameDelegate?.setCameraIntrinsics(fx: fx, fy: fy, cx: cx, cy: cy,
+                                              videoWidth: vw, videoHeight: vh)
         print("📐 =============================================")
     }
 }
@@ -812,6 +814,10 @@ protocol PointCloudDelegate: AnyObject {
 // MARK: - ROS Frame Delegate Protocol
 protocol RosFrameDelegate: AnyObject {
     func didCaptureFrame(_ sampleBuffer: CMSampleBuffer, depthData: AVDepthData?)
+    /// The intrinsic matrix as the hardware reports it, over the video buffer's
+    /// own dimensions. The publisher scales it to whatever it actually sends.
+    func setCameraIntrinsics(fx: Float, fy: Float, cx: Float, cy: Float,
+                             videoWidth: Int, videoHeight: Int)
 }
 
 // MARK: - Local Video Recording Delegate Protocol
